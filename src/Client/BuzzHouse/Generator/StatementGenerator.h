@@ -682,20 +682,36 @@ private:
     String getNextRandomServerAddresses(RandomGenerator & rg, bool secure);
     String getNextHTTPURL(RandomGenerator & rg, bool secure);
     template <typename T>
-    void addRandomHTTPHeaders(RandomGenerator & rg, T * func)
+    void addRandomHTTPHeaders(RandomGenerator & rg, const bool is_write, T * func)
     {
         static const std::array<const char *, 5> encodings = {"gzip", "zstd", "br", "deflate", "lz4"};
-        using Candidate = std::pair<const char *, String>;
-        std::array<Candidate, 5> candidates = {{
+        static const std::array<const char *, 4> user_agents = {"BuzzHouse", "curl/8.5.0", "Mozilla/5.0", ""};
+        static const std::array<const char *, 4> origins = {"http://localhost", "https://example.com", "null", ""};
+        /// Mostly a valid W3C `traceparent`, which starts an OpenTelemetry trace, otherwise a malformed one
+        const String traceparent = fmt::format(
+            "{}-{}-{}-0{}",
+            rg.nextSmallNumber() < 9 ? "00" : "ff",
+            rg.nextHexBytes(rg.nextSmallNumber() < 9 ? 16 : 8),
+            rg.nextHexBytes(8),
+            rg.nextBool() ? "1" : "0");
+        std::vector<std::pair<const char *, String>> candidates = {
             {"Accept-Encoding", String(rg.pickRandomly(encodings))},
-            {"Content-Encoding", String(rg.pickRandomly(encodings))},
-            {"X-ClickHouse-Compress", rg.nextBool() ? "1" : "0"},
-            {"X-ClickHouse-Progress", rg.nextBool() ? "1" : "0"},
+            {"X-ClickHouse-Quota", "q" + std::to_string(rg.nextSmallNumber())},
             {"X-ClickHouse-Database",
              collectionHas<std::shared_ptr<SQLDatabase>>(attached_databases)
                  ? rg.pickRandomly(filterCollection<std::shared_ptr<SQLDatabase>>(attached_databases)).get()->getName()
                  : "default"},
-        }};
+            {"traceparent", traceparent},
+            {"tracestate", "buzzhouse=" + rg.nextHexBytes(4)},
+            {"User-Agent", String(rg.pickRandomly(user_agents))},
+            {"Referer", rg.nextBool() ? "http://localhost:8123/play" : "https://example.com/"},
+            {"Origin", String(rg.pickRandomly(origins))},
+        };
+        /// A custom `Content-Encoding` does not compress the request body, so the receiver fails to decode a write
+        if (!is_write)
+        {
+            candidates.emplace_back("Content-Encoding", String(rg.pickRandomly(encodings)));
+        }
         std::shuffle(candidates.begin(), candidates.end(), rg.generator);
         for (const auto & [name, value] : candidates)
         {

@@ -1240,7 +1240,7 @@ bool StatementGenerator::tableOrFunctionRef(
                   ufunc->set_format(outf);
               }
               ufunc->mutable_structure()->mutable_lit_val()->set_string_lit(std::move(buf));
-              addRandomHTTPHeaders(rg, tf);
+              addRandomHTTPHeaders(rg, true, tf);
           }},
          {simple_est,
           [&]

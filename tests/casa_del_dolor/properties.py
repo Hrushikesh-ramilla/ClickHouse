@@ -1907,7 +1907,7 @@ def modify_server_settings(
             ("backup_log", 1048576, 8192),
             ("blob_storage_log", 1048576, 8192),
             # Its default `schema_type` is the `bucketed` one it needs
-            ("bucketed_metric_log", 1048576, 8192),
+            # ("bucketed_metric_log", 1048576, 8192),
             ("crash_log", 1024, 1024),
             ("dead_letter_queue", 1048576, 8192),
             ("delta_lake_metadata_log", 1048576, 8192),

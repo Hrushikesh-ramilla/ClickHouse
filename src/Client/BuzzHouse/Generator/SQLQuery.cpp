@@ -397,7 +397,7 @@ void StatementGenerator::setTableFunction(RandomGenerator & rg, const TableFunct
             structure = rg.nextMediumNumber() < 96 ? ufunc->mutable_structure() : nullptr;
             if (structure)
             {
-                addRandomHTTPHeaders(rg, tfunc);
+                addRandomHTTPHeaders(rg, true, tfunc);
             }
         }
         else if (t.isRedisEngine())
@@ -486,7 +486,7 @@ void StatementGenerator::setTableFunction(RandomGenerator & rg, const TableFunct
             /// Custom HTTP headers only apply to HTTP-based (S3-family) object stores; forwarding them
             /// into the Azure SDK or local-file paths breaks the transport (e.g. Accept-Encoding).
             if (t.isOnS3())
-                addRandomHTTPHeaders(rg, tfunc);
+                addRandomHTTPHeaders(rg, true, tfunc);
         }
     }
     else if (usage == TableFunctionUsage::ClusterCall)
@@ -1161,7 +1161,7 @@ StatementGenerator::FromSourceInfo StatementGenerator::joinedTableOrFunction(
                 ufunc->set_format(iinf);
             }
             ufunc->mutable_structure()->mutable_lit_val()->set_string_lit(std::move(buf));
-            addRandomHTTPHeaders(rg, tf);
+            addRandomHTTPHeaders(rg, false, tf);
             addTableRelation(rg, rg.nextMediumNumber() < 4, rel_name, tt);
         }
         break;
