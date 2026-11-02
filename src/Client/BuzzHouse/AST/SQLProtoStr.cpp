@@ -5515,10 +5515,22 @@ CONV_FN(SystemCommand, cmd)
             ret += "DROP PARQUET METADATA CACHE";
             can_set_cluster = true;
             break;
-        case CmdType::kDropDistributedCache:
+        case CmdType::kDropDistributedCache: {
+            const auto & ddc = cmd.drop_distributed_cache();
+
             ret += "DROP DISTRIBUTED CACHE";
+            if (ddc.has_connections())
+            {
+                ret += " CONNECTIONS";
+            }
+            else if (ddc.has_server_id())
+            {
+                ret += " ";
+                appendSQLStringLiteral(ret, ddc.server_id());
+            }
             can_set_cluster = true;
             break;
+        }
         case CmdType::kFlushObjectStorageQueue: {
             const auto & foq = cmd.flush_object_storage_queue();
             SystemCommandOnCluster(ret, "FLUSH OBJECT STORAGE QUEUE", cmd, foq.table());

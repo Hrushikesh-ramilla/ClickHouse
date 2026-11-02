@@ -2411,6 +2411,13 @@ enum DeltaKernelTraceLevel {
     TRACE = 5;
 }
 
+message DropDistributedCache {
+    oneof target {
+        bool connections = 1;
+        string server_id = 2;
+    }
+}
+
 message UnlockSnapshot {
     required string name = 1;
     optional BackupOut from = 2;
@@ -2516,7 +2523,7 @@ message SystemCommand {
         bool sync_transaction_log = 95;
         bool start_thread_fuzzer = 96;
         bool stop_thread_fuzzer = 97;
-        bool drop_distributed_cache = 98;
+        DropDistributedCache drop_distributed_cache = 98;
         UnlockSnapshot unlock_snapshot = 99;
         FlushObjectStorageQueue flush_object_storage_queue = 100;
         ExprSchemaTable stop_virtual_parts_update = 101;

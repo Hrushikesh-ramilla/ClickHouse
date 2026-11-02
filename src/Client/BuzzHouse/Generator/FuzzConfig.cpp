@@ -447,6 +447,7 @@ FuzzConfig::FuzzConfig(DB::ClientBase * c, const String & path)
         {"allow_memory_tables", [&](const JSONObjectType & value) { allow_memory_tables = value.getBool(); }},
         {"allow_client_restarts", [&](const JSONObjectType & value) { allow_client_restarts = value.getBool(); }},
         {"set_smt_disk", [&](const JSONObjectType & value) { set_smt_disk = value.getBool(); }},
+        {"has_distributed_cache", [&](const JSONObjectType & value) { has_distributed_cache = value.getBool(); }},
         {"allow_query_oracles", [&](const JSONObjectType & value) { allow_query_oracles = value.getBool(); }},
         {"allow_health_check", [&](const JSONObjectType & value) { allow_health_check = value.getBool(); }},
         {"enable_compatibility_settings", [&](const JSONObjectType & value) { enable_compatibility_settings = value.getBool(); }},
@@ -1354,6 +1355,27 @@ uint32_t FuzzConfig::tableCountConstraints(const String & database, const String
 String FuzzConfig::tableGetRandomConstraint(const uint64_t rand_val, const String & database, const String & table)
 {
     return tableGetRandomSystemName(rand_val, "constraints", database, table);
+}
+
+String FuzzConfig::getRandomDistributedCacheServer(const uint64_t rand_val)
+{
+    String res;
+
+    if (processServerQuery(
+            false,
+            fmt::format(
+                "SELECT \"distributed_cache_server\" FROM \"system\".\"distributed_cache_registry\" ORDER BY "
+                "\"distributed_cache_server\" LIMIT 1 OFFSET {} % max2((SELECT count() FROM \"system\".\"distributed_cache_registry\"), 1) "
+                "INTO OUTFILE '{}' TRUNCATE FORMAT TabSeparated;",
+                rand_val,
+                fuzzer_out_file.generic_string())))
+    {
+        std::ifstream infile(fuzzer_out_file, std::ios::in);
+        std::getline(infile, res);
+        if (!res.empty() && res.back() == '\r')
+            res.pop_back();
+    }
+    return res;
 }
 
 void FuzzConfig::validateClickHouseHealth()

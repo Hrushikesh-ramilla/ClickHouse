@@ -360,6 +360,7 @@ public:
     bool enable_overflow_settings = false;
     bool random_limited_values = false;
     bool set_smt_disk = true;
+    bool has_distributed_cache = false;
     bool allow_query_oracles = true;
     bool allow_health_check = true;
     bool enable_compatibility_settings = false;
@@ -491,6 +492,8 @@ public:
     uint32_t tableCountConstraints(const String & database, const String & table);
 
     String tableGetRandomConstraint(uint64_t rand_val, const String & database, const String & table);
+
+    String getRandomDistributedCacheServer(uint64_t rand_val);
 
     void comparePerformanceResults(const String & oracle_name, PerformanceResult & server, PerformanceResult & peer) const;
 

@@ -2976,7 +2976,23 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
         {3, [&] { sc->set_start_thread_fuzzer(true); }},
         {3, [&] { sc->set_stop_thread_fuzzer(true); }},
         {3, [&] { sc->set_drop_parquet_metadata_cache(true); }},
-        {3 * static_cast<uint32_t>(supports_cloud_features), [&] { sc->set_drop_distributed_cache(true); }},
+        {3 * static_cast<uint32_t>(supports_cloud_features || fc.has_distributed_cache),
+         [&]
+         {
+             DropDistributedCache * ddc = sc->mutable_drop_distributed_cache();
+             const uint32_t nopt = rg.nextSmallNumber();
+
+             if (nopt < 3)
+             {
+                 ddc->set_connections(true);
+             }
+             else if (nopt < 6)
+             {
+                 /// A registered server, or a made-up one
+                 const String server = rg.nextSmallNumber() < 9 ? fc.getRandomDistributedCacheServer(rg.nextInFullRange()) : "";
+                 ddc->set_server_id(server.empty() ? ("server" + std::to_string(rg.nextSmallNumber())) : server);
+             }
+         }},
         {3 * static_cast<uint32_t>(supports_cloud_features && !freeze_names.empty()),
          [&]
          {

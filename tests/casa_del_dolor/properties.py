@@ -87,6 +87,20 @@ rocksdb_properties = {
     }
 }
 
+zookeeper_client_properties = {
+    "use_compression": true_false_lambda,
+    "zookeeper_load_balancing": lambda: random.choice(
+        [
+            "random",
+            "in_order",
+            "nearest_hostname",
+            "hostname_levenshtein_distance",
+            "first_or_random",
+            "round_robin",
+        ]
+    ),
+}
+
 
 possible_properties = {
     "access_control_improvements": {
@@ -576,19 +590,7 @@ possible_properties = {
     "vector_similarity_index_cache_size": threshold_generator(0.2, 0.2, 0, 5368709120),
     "vector_similarity_index_cache_size_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
     "wait_dictionaries_load_at_startup": true_false_lambda,
-    "zookeeper": {
-        "use_compression": true_false_lambda,
-        "zookeeper_load_balancing": lambda: random.choice(
-            [
-                "random",
-                "in_order",
-                "nearest_hostname",
-                "hostname_levenshtein_distance",
-                "first_or_random",
-                "round_robin",
-            ]
-        ),
-    },
+    "zookeeper": zookeeper_client_properties,
     **rocksdb_properties,
 }
 
@@ -610,6 +612,8 @@ object_storages_properties = {
     "local": {**plain_rewritable_properties},
     "s3": {
         **plain_rewritable_properties,
+        # Opts the disk out of the distributed cache of the private binary
+        "enable_distributed_cache": true_false_lambda,
         "list_object_keys_size": threshold_generator(0.2, 0.2, 1, 10 * 1024 * 1024, 31),
         "metadata_keep_free_space_bytes": threshold_generator(
             0.2, 0.2, 0, 10 * 1024 * 1024
@@ -670,6 +674,7 @@ object_storages_properties = {
     },
     "azure": {
         **plain_rewritable_properties,
+        "enable_distributed_cache": true_false_lambda,
         "check_objects_after_upload": true_false_lambda,
         "list_object_keys_size": threshold_generator(0.2, 0.2, 1, 10 * 1024 * 1024),
         "max_blocks_in_multipart_upload": threshold_generator(0.2, 0.2, 1, 100000),
@@ -2026,6 +2031,118 @@ def modify_server_settings(
             tree.write(temp_path, encoding="utf-8", xml_declaration=True)
         return True, temp_path, number_clusters
     return False, input_config_path, number_clusters
+
+
+distributed_cache_server_properties = {
+    # The client may change its id between requests
+    "ci_mode": true_false_lambda,
+    "graceful_shutdown_timeout_sec": threshold_generator(0.2, 0.2, 0, 60),
+    "idle_connection_timeout_sec": threshold_generator(0.2, 0.2, 1, 600),
+    # Skips the availability zone detection
+    "local": true_false_lambda,
+    "poll_timeout_sec": threshold_generator(0.2, 0.2, 1, 60),
+    "slow_down_retry_after_ms": threshold_generator(0.2, 0.2, 0, 5000),
+    "socket_receive_timeout_sec": threshold_generator(0.2, 0.2, 1, 300),
+    "socket_send_timeout_sec": threshold_generator(0.2, 0.2, 1, 300),
+    "stats_log_interval_sec": threshold_generator(0.2, 0.2, 0, 60),
+    # 0 derives it from the disk size
+    "weight": lambda: random.choice([0, 0.5, 1, 4]),
+}
+
+distributed_cache_client_properties = {
+    # Lets queries override the client id with the `distributed_cache_client_id` setting
+    "ci_mode": true_false_lambda,
+    "connection_pool_size": threshold_generator(0.2, 0.2, 1, 10000, 14),
+    "connection_pool_size_per_server": threshold_generator(0.2, 0.2, 1, 1000, 10),
+    "connection_pool_ttl_sec": threshold_generator(0.2, 0.2, 0, 60),
+    # Skips the availability zone detection
+    "local": true_false_lambda,
+    "registry_watch_wait_timeout_milliseconds": threshold_generator(
+        0.2, 0.2, 100, 10000
+    ),
+    "tcp_no_delay": true_false_lambda,
+    "temporary_data_committed_mode": true_false_lambda,
+}
+
+
+def generate_distributed_cache_config(args, node: int) -> tuple[str, int]:
+    """The distributed cache of one node running the private binary: the cache servers it hosts and its client.
+
+    The servers listen on the loopback, the address they also publish in Keeper, so each node has its own
+    registry path, and its client only finds the servers of the same node. Returns the path and the number of servers.
+    """
+    root = ET.Element("clickhouse")
+    keeper_path = f"/distributed_cache/dolor_node{node}/"
+
+    def add_keeper(parent: ET.Element):
+        # All the Keeper nodes, as dolor restarts some of them
+        keeper_xml = ET.SubElement(parent, "zookeeper")
+        for i in range(1, 4):
+            node_xml = ET.SubElement(keeper_xml, "node", attrib={"index": str(i)})
+            ET.SubElement(node_xml, "host").text = f"zoo{i}"
+            ET.SubElement(node_xml, "port").text = "2181"
+        ET.SubElement(keeper_xml, "session_timeout_ms").text = str(
+            random.choice([5000, 15000, 30000])
+        )
+        if random.randint(1, 100) <= 70:
+            apply_properties_recursively(keeper_xml, zookeeper_client_properties)
+
+    nservers = random.randint(1, 2)
+    for i in range(nservers):
+        server_xml = ET.SubElement(root, "distributed_cache_server")
+        ET.SubElement(server_xml, "tcp_port").text = str(10001 + i)
+        ET.SubElement(server_xml, "path").text = (
+            f"/var/lib/clickhouse/clickhouse-distributed-cache-{i}/"
+        )
+        ET.SubElement(server_xml, "zookeeper_path").text = keeper_path
+        add_keeper(server_xml)
+        cache_xml = ET.SubElement(server_xml, "cache")
+        ET.SubElement(cache_xml, "max_size").text = random.choice(
+            ["1Mi", "16Mi", "64Mi", "512Mi", "1Gi", "10Gi"]
+        )
+        ET.SubElement(cache_xml, "path").text = f"cache{i}/"
+        # In sanitizer builds the check walks the whole cache under its locks long enough to time out the clients
+        ET.SubElement(cache_xml, "check_cache_probability").text = "0"
+        if random.randint(1, 100) <= 70:
+            apply_properties_recursively(cache_xml, cache_storage_properties)
+        normalize_cache_properties(cache_xml)
+        if random.randint(1, 100) <= 70:
+            apply_properties_recursively(
+                server_xml, distributed_cache_server_properties
+            )
+
+    client_xml = ET.SubElement(root, "distributed_cache_client")
+    add_keeper(client_xml)
+    ET.SubElement(client_xml, "keeper_path").text = keeper_path
+    ET.SubElement(client_xml, "client_id").text = f"dolor_node{node}"
+    if random.randint(1, 100) <= 70:
+        apply_properties_recursively(client_xml, distributed_cache_client_properties)
+
+    # Object storage disks use the cache unless their `enable_distributed_cache` is 0
+    for setting in (
+        "enable_read_through_distributed_cache",
+        "enable_write_through_distributed_cache",
+    ):
+        ET.SubElement(root, setting).text = (
+            "1" if random.randint(1, 100) <= 90 else "0"
+        )
+    if random.randint(1, 100) <= 50:
+        # Temporary data is kept in one cache only
+        ET.SubElement(root, "temporary_data_in_cache", attrib={"remove": "remove"})
+        ET.SubElement(root, "temporary_data_in_distributed_cache").text = "1"
+
+    if random.randint(1, 100) <= 50:
+        # Servers and client not in `local` mode take the zone from here, otherwise it is empty
+        ET.SubElement(ET.SubElement(root, "placement"), "availability_zone").text = (
+            random.choice(["az-a", "az-b"])
+        )
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="    ", level=0)
+    # Merged after the other configs, so it wins over the generated server settings
+    config_path = f"{args.tmp_files_dir}/zz_distributed_cache_node{node}.xml"
+    tree.write(config_path, encoding="utf-8", xml_declaration=True)
+    return config_path, nservers
 
 
 def modify_user_settings(
