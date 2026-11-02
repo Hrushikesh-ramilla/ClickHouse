@@ -3514,6 +3514,38 @@ CONV_FN(TableEngine, te)
         ret += " SETTINGS ";
         SettingValuesToString(ret, te.setting_values());
     }
+    for (int i = 0; i < te.ts_inner_tables_size(); i++)
+    {
+        const TimeSeriesInnerTable & tit = te.ts_inner_tables(i);
+        /// TS_RECENT_SAMPLES -> RECENT SAMPLES
+        String target = TimeSeriesTarget_Name(tit.target()).substr(3);
+        const auto add_clause = [&](const String & clause) { ret += " " + target + clause; };
+
+        std::replace(target.begin(), target.end(), '_', ' ');
+        if (tit.has_target_table())
+        {
+            add_clause(" ");
+            ExprSchemaTableToString(ret, tit.target_table());
+        }
+        if (tit.has_inner_uuid())
+        {
+            add_clause(" INNER UUID '" + tit.inner_uuid() + "'");
+        }
+        if (tit.has_columns())
+        {
+            add_clause(" INNER COLUMNS");
+            TableDefToString(ret, tit.columns());
+        }
+        if (tit.has_engine())
+        {
+            add_clause(tit.skip_inner() ? " ENGINE = " : " INNER ENGINE = ");
+            if (tit.has_toption())
+            {
+                ret += TableEngineOption_Name(tit.toption()).substr(1);
+            }
+            ret += TableEngineValues_Name(tit.engine());
+        }
+    }
 }
 
 CONV_FN(CreateTableAs, create_table)
@@ -5303,6 +5335,9 @@ CONV_FN(SystemCommand, cmd)
             ExprSchemaTableToString(ret, cmd.wait_view());
             break;
         case CmdType::kPrewarmCache: SystemCommandOnCluster(ret, "PREWARM MARK CACHE", cmd, cmd.prewarm_cache()); break;
+        case CmdType::kDropTimeSeriesCaches:
+            SystemCommandOnCluster(ret, "DROP TIME SERIES CACHES", cmd, cmd.drop_time_series_caches());
+            break;
         case CmdType::kPrewarmPrimaryIndexCache:
             SystemCommandOnCluster(ret, "PREWARM PRIMARY INDEX CACHE", cmd, cmd.prewarm_primary_index_cache());
             break;

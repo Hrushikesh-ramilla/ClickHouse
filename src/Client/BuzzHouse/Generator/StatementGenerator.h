@@ -580,6 +580,8 @@ private:
     void addTableProjection(RandomGenerator & rg, SQLTable & t, ProjectionUsage usage, ProjectionDef * pdef);
     void addTableConstraint(RandomGenerator & rg, SQLTable & t, ConstraintDef * cdef);
     void addTableCodec(RandomGenerator & rg, const SQLTable & t, ColumnCodec * cc);
+    void addTimeSeriesColumn(RandomGenerator & rg, SQLTable & t, const String & name, ColumnDef * cd);
+    void addTimeSeriesInnerColumns(RandomGenerator & rg, TimeSeriesTarget target, TableDef * tdef);
     void generateTableKey(RandomGenerator & rg, const SQLRelation & rel, const SQLBase & b, bool allow_asc_desc, TableKey * tkey);
     void setClusterClause(RandomGenerator & rg, const std::optional<String> & cluster, Cluster * clu, bool force = false) const;
     void setDatabaseClusterClause(RandomGenerator & rg, const std::shared_ptr<SQLDatabase> & db, Cluster * clu) const;

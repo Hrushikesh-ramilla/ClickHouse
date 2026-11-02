@@ -544,6 +544,7 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
          false)},
     {"object_shared_data_target_chunk_rows",
      CHSetting(rowsRangeNonZero, {"1", "2", "4", "8", "32", "64", "1024", "2048", "4096", "16384"}, false)},
+    {"object_typed_shared_data_serialization_version", CHSetting([](RandomGenerator &, FuzzConfig &) { return "'v1'"; }, {"'v1'"}, false)},
     {"old_parts_lifetime",
      CHSetting(
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 10, 8 * 60)); },
@@ -1098,6 +1099,83 @@ static std::unordered_map<String, CHSetting> materializedPostgreSQLTableSettings
     = {{"materialized_postgresql_backoff_max_ms", CHSetting(highRange, {}, false)},
        {"materialized_postgresql_backoff_min_ms", CHSetting(highRange, {}, false)}};
 
+static const auto timeSeriesSecondsSetting = CHSetting(
+    [](RandomGenerator & rg, FuzzConfig &)
+    {
+        static const std::vector<uint64_t> choices = {0, 1, 60, 900, 3600, 86400, 345600};
+        return std::to_string(rg.pickRandomly(choices));
+    },
+    {},
+    false);
+
+static const auto timeSeriesPartitionBySetting = CHSetting(
+    [](RandomGenerator & rg, FuzzConfig &)
+    {
+        static const DB::Strings choices
+            = {"'tuple()'", "'toStartOfHour(bucket)'", "'toStartOfDay(bucket)'", "'toStartOfWeek(bucket)'", "'toYYYYMM(bucket)'"};
+        return rg.pickRandomly(choices);
+    },
+    {},
+    false);
+
+/// Most are pinned at CREATE, and several apply to some table versions only
+static std::unordered_map<String, CHSetting> timeSeriesTableSettings = {
+    {"aggregate_min_time_and_max_time", trueOrFalseSetting},
+    {"filter_by_min_time_and_max_time", trueOrFalseSetting},
+    {"id_generator",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"'sipHash64(metric_name, tags)'", "'sipHash128(metric_name, tags)'"};
+             return rg.pickRandomly(choices);
+         },
+         {},
+         false)},
+    {"id_type",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"'UInt64'", "'UInt128'", "'UUID'", "'Tuple(UInt64, LowCardinality(UUID))'"};
+             return rg.pickRandomly(choices);
+         },
+         {},
+         false)},
+    {"metric_families_deduplication_cache_expiration_seconds", timeSeriesSecondsSetting},
+    {"metric_families_deduplication_cache_size_bytes", bytesRangeSetting},
+    {"recent_samples_bucket_step_seconds", timeSeriesSecondsSetting},
+    {"recent_samples_index_granularity", highRangeNonZeroSetting},
+    {"recent_samples_index_granularity_bytes", indexGranularityBytesSetting},
+    {"recent_samples_partition_by", timeSeriesPartitionBySetting},
+    {"recent_samples_ttl_seconds", timeSeriesSecondsSetting},
+    {"samples_bucket_step_seconds", timeSeriesSecondsSetting},
+    {"samples_index_granularity", highRangeNonZeroSetting},
+    {"samples_index_granularity_bytes", indexGranularityBytesSetting},
+    {"samples_partition_by", timeSeriesPartitionBySetting},
+    {"store_min_time_and_max_time", trueOrFalseSetting},
+    {"store_time_ranges", trueOrFalseSetting},
+    {"tags_deduplication_cache_expiration_seconds", timeSeriesSecondsSetting},
+    {"tags_deduplication_cache_size_bytes", bytesRangeSetting},
+    {"tags_index_granularity", highRangeNonZeroSetting},
+    {"tags_to_columns",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings tags = {"job", "instance", "env", "host"};
+             String res = "{";
+
+             for (const auto & tag : tags)
+             {
+                 if (rg.nextBool())
+                 {
+                     res += fmt::format("{}'{}': '{}'", res.size() > 1 ? ", " : "", tag, rg.nextBool() ? tag : ("tag_" + tag));
+                 }
+             }
+             return res + "}";
+         },
+         {},
+         false)},
+    {"version", CHSetting([](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 11)); }, {}, false)}};
+
 static std::unordered_map<String, CHSetting> mergeTreeColumnSettings
     = {{"min_compress_block_size", highRangeSetting}, {"max_compress_block_size", highRangeSetting}};
 
@@ -1476,7 +1554,7 @@ void loadFuzzerTableSettings(const FuzzConfig & fc)
          {MaterializedPostgreSQL, materializedPostgreSQLTableSettings},
          {ArrowFlight, {}},
          {Alias, {}},
-         {TimeSeries, {}},
+         {TimeSeries, timeSeriesTableSettings},
          {HDFS, {}},
          {Hive, hiveTableSettings},
          {JDBC, {}},

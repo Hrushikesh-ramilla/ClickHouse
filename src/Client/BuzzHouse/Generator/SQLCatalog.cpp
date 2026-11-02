@@ -526,6 +526,12 @@ bool SQLBase::isKafkaEngine(const bool as_alias) const
         || (as_alias && isAliasEngine() && subengine.has_value() && subengine->value == TableEngineValues::Kafka);
 }
 
+bool SQLBase::isTimeSeriesEngine(const bool as_alias) const
+{
+    return engine.value == TableEngineValues::TimeSeries
+        || (as_alias && isAliasEngine() && subengine.has_value() && subengine->value == TableEngineValues::TimeSeries);
+}
+
 bool SQLBase::isNotTruncableEngine() const
 {
     return isNullEngine() || isSetEngine() || isMySQLEngine() || isPostgreSQLEngine() || isSQLiteEngine() || isRedisEngine()

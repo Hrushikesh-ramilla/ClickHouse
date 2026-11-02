@@ -2718,6 +2718,8 @@ static const std::function<bool(const SQLTable &)> table_has_replicas
 
 static const auto has_queue_func = [](const SQLTable & t) { return t.isAttached() && t.isAnyQueueEngine(); };
 
+static const auto has_time_series_func = [](const SQLTable & t) { return t.isAttached() && t.isTimeSeriesEngine(); };
+
 static const auto has_streaming_table_func
     = [](const SQLTable & t) { return t.isAttached() && (t.isAnyQueueEngine() || t.isKafkaEngine()); };
 
@@ -2732,6 +2734,8 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
     const uint32_t has_table = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(attached_tables));
     const uint32_t has_replicated_table = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(table_has_replicas));
     const uint32_t has_queue_table = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(has_queue_func));
+    const uint32_t has_time_series_table
+        = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(has_time_series_func));
     const uint32_t has_streaming_table = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(has_streaming_table_func));
     /// The background controls accept a streaming table or a refreshable view interchangeably
     const uint32_t has_background_target = has_streaming_table | has_refreshable_view;
@@ -2875,6 +2879,8 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
         {3, [&] { sc->set_cancel_all_background(true); }},
         {3, [&] { sc->set_refresh_all_background(true); }},
         {8 * has_table, [&] { cluster = setTableSystemStatement<SQLTable>(rg, attached_tables, sc->mutable_prewarm_cache()); }},
+        {8 * has_time_series_table,
+         [&] { cluster = setTableSystemStatement<SQLTable>(rg, has_time_series_func, sc->mutable_drop_time_series_caches()); }},
         {8 * has_table,
          [&] { cluster = setTableSystemStatement<SQLTable>(rg, attached_tables, sc->mutable_prewarm_primary_index_cache()); }},
         /// Drop caches

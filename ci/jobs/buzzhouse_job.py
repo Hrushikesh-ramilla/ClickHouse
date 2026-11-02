@@ -118,6 +118,7 @@ def main():
             "clusterdatabase",
             "remotedatabase",
             "overlay",
+            "timeseries",
         ]
         random.shuffle(disabled_engines)
         disabled_engines_str = ",".join(

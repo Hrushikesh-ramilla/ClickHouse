@@ -91,6 +91,9 @@ enum SQLTableFunc {
     TFytsaurus = 85;
     TFzeros = 86;
     TFzeros_mt = 87;
+    TFtimeSeriesSamples = 89;
+    TFtimeSeriesTimeRanges = 90;
+    TFtimeSeriesMetricFamilies = 91;
 }
 
 message SQLIdentifier {
@@ -1717,6 +1720,28 @@ message TTLExpr {
     repeated TTLEntry other_ttl = 2;
 }
 
+/// `DATA` and `METRICS` are the older names of `SAMPLES` and `METRIC FAMILIES`
+enum TimeSeriesTarget {
+    TS_SAMPLES = 1;
+    TS_RECENT_SAMPLES = 2;
+    TS_TAGS = 3;
+    TS_TIME_RANGES = 4;
+    TS_METRIC_FAMILIES = 5;
+    TS_DATA = 6;
+    TS_METRICS = 7;
+}
+
+/// The `INNER UUID`, `INNER COLUMNS` and `[INNER] ENGINE` clauses of one target table, or an existing table instead
+message TimeSeriesInnerTable {
+    required TimeSeriesTarget target = 1;
+    optional TableEngineValues engine = 2;
+    optional TableEngineOption toption = 3;
+    optional TableDef columns = 4;
+    optional string inner_uuid = 5;
+    optional ExprSchemaTable target_table = 6;
+    optional bool skip_inner = 7;
+}
+
 message TableEngine {
     optional TableEngineOption toption = 1;
     optional TableEngineValues engine = 2;
@@ -1728,6 +1753,7 @@ message TableEngine {
     optional TableKey sample_by = 8;
     optional TTLExpr ttl_expr = 9;
     optional SettingValues setting_values = 10;
+    repeated TimeSeriesInnerTable ts_inner_tables = 11;
 }
 
 message CreateTableAs {
@@ -2548,6 +2574,7 @@ message SystemCommand {
         bool pause_all_background = 118;
         bool cancel_all_background = 119;
         bool refresh_all_background = 120;
+        ExprSchemaTable drop_time_series_caches = 121;
     }
 }
 

@@ -73,7 +73,7 @@ const constexpr uint64_t allow_replacing_mergetree
     allow_backup = (UINT64_C(1) << 46), allow_paimon = (UINT64_C(1) << 47), allow_paimonS3 = (UINT64_C(1) << 48),
     allow_paimonAzure = (UINT64_C(1) << 49), allow_paimonLocal = (UINT64_C(1) << 50), allow_remote = (UINT64_C(1) << 51),
     allow_cluster_database = (UINT64_C(1) << 52), allow_remote_database = (UINT64_C(1) << 53),
-    allow_overlay_database = (UINT64_C(1) << 54);
+    allow_overlay_database = (UINT64_C(1) << 54), allow_time_series = (UINT64_C(1) << 55);
 
 extern const DB::Strings compressionMethods;
 extern const DB::Strings codecs;
