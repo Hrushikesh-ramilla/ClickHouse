@@ -151,8 +151,13 @@ possible_properties = {
     #     0.2, 0.2, 0.0, 0.001
     # ),
     "cgroups_memory_usage_observer_wait_time": threshold_generator(0.2, 0.2, 0, 60, 6),
+    "collect_connection_metrics": true_false_lambda,
+    "columns_cache_free_memory_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
+    "columns_cache_history_window_ms": threshold_generator(0.2, 0.2, 0, 10000),
     "columns_cache_policy": lambda: random.choice(["LRU", "SLRU", "SIEVE"]),
+    "columns_cache_size": threshold_generator(0.2, 0.2, 0, 2 * 1024 * 1024 * 1024),
     "columns_cache_size_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
+    "columns_cache_size_to_ram_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
     "compiled_expression_cache_elements_size": threshold_generator(0.2, 0.2, 0, 10000),
     # In bytes (default 128Mi), unlike the element count above
     "compiled_expression_cache_size": threshold_generator(
@@ -165,12 +170,14 @@ possible_properties = {
     "concurrent_threads_soft_limit_num": threads_lambda,
     "concurrent_threads_soft_limit_ratio_to_cores": threads_lambda,
     "config_reload_interval_ms": threshold_generator(0.2, 0.2, 500, 10000, 14),
+    "cpu_slot_parking": true_false_lambda,
     "cpu_slot_preemption": true_false_lambda,
     "cpu_slot_preemption_timeout_ms": threshold_generator(0.2, 0.2, 0, 5000),
     "cpu_slot_quantum_ns": threshold_generator(0.2, 0.2, 0, 100000000),
     "database_atomic_delay_before_drop_table_sec": threshold_generator(0.2, 0.2, 0, 60),
     "database_catalog_drop_error_cooldown_sec": threshold_generator(0.2, 0.2, 0, 30),
     "database_catalog_drop_table_concurrency": threads_lambda,
+    "database_catalog_shutdown_table_concurrency": threads_lambda,
     "database_catalog_unused_dir_cleanup_period_sec": threshold_generator(
         0.2, 0.2, 60, 86400
     ),
@@ -222,6 +229,7 @@ possible_properties = {
     "global_profiler_cpu_time_period_ns": threshold_generator(0.2, 0.2, 0, 1000000000),
     "global_profiler_real_time_period_ns": threshold_generator(0.2, 0.2, 0, 1000000000),
     "handshake_timeout_milliseconds": threshold_generator(0.2, 0.2, 1000, 30000),
+    "http_allow_path_requests": true_false_lambda,
     "http_connections_hard_limit": threshold_generator(0.2, 0.2, 0, 400000),
     "http_connections_rcvbuf": threshold_generator(0.2, 0.2, 0, 16 * 1024 * 1024),
     "http_connections_sndbuf": threshold_generator(0.2, 0.2, 0, 16 * 1024 * 1024),
@@ -394,6 +402,10 @@ possible_properties = {
         0.2, 0.2, 0.0, 1.0
     ),
     "message_queue_disable_insertion": true_false_lambda,
+    # Small values log a stack trace on almost every allocation
+    "min_allocation_size_to_log_stack_trace": lambda: random.choice(
+        [0, 1024 * 1024, 64 * 1024 * 1024, 1024 * 1024 * 1024]
+    ),
     "min_allocation_size_to_throw_on_memory_limit": threshold_generator(
         0.2, 0.2, 0, 1024 * 1024
     ),
@@ -467,6 +479,10 @@ possible_properties = {
     "query_condition_cache_policy": lambda: random.choice(["LRU", "SLRU", "SIEVE"]),
     "query_condition_cache_size": threshold_generator(0.2, 0.2, 0, 104857600),
     "query_condition_cache_size_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
+    # In [1, 100]; `modify_server_settings` orders them elevated <= high <= critical
+    "reader_executor_memory_pressure_critical_level_pct": lambda: random.randint(1, 100),
+    "reader_executor_memory_pressure_elevated_level_pct": lambda: random.randint(1, 100),
+    "reader_executor_memory_pressure_high_level_pct": lambda: random.randint(1, 100),
     "remap_executable": true_false_lambda,
     # 0 falls back to the generic HTTP timeouts; small values exercise the fetch retries
     "replicated_fetches_http_connection_timeout": threshold_generator(
@@ -492,6 +508,10 @@ possible_properties = {
     "snapshot_cleaner_period": threshold_generator(0.2, 0.2, 0, 600),
     "snapshot_cleaner_pool_size": threads_lambda,
     "startup_mv_delay_ms": threshold_generator(0.2, 0.2, 0, 1000),
+    "statistics_cache_policy": lambda: random.choice(["LRU", "SLRU", "SIEVE"]),
+    "statistics_cache_prewarm_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
+    "statistics_cache_size": threshold_generator(0.2, 0.2, 0, 1024 * 1024 * 1024),
+    "statistics_cache_size_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
     "storage_connections_hard_limit": threshold_generator(0.2, 0.2, 0, 400000),
     "storage_connections_rcvbuf": threshold_generator(0.2, 0.2, 0, 16 * 1024 * 1024),
     "storage_connections_sndbuf": threshold_generator(0.2, 0.2, 0, 16 * 1024 * 1024),
@@ -502,6 +522,7 @@ possible_properties = {
     "storage_shared_set_join_use_inner_uuid": true_false_lambda,
     "tables_loader_background_pool_size": threads_lambda,
     "tables_loader_foreground_pool_size": threads_lambda,
+    "tcp_with_proxy_allow_interserver_mode": true_false_lambda,
     "temporary_data_in_distributed_cache": true_false_lambda,
     "text_index_header_cache_max_entries": threshold_generator(0.2, 0.2, 0, 1024),
     "text_index_header_cache_policy": lambda: random.choice(["LRU", "SLRU", "SIEVE"]),
@@ -578,9 +599,17 @@ distributed_properties = {
     "task_max_lifetime": threshold_generator(0.2, 0.2, 0, 60),
 }
 
+# Read only by the `plain_rewritable` metadata storage, see `metadata_type_properties`
+plain_rewritable_properties = {
+    "enable_hard_links": true_false_lambda,
+    "metadata_snapshot_enabled": true_false_lambda,
+    "metadata_snapshot_write_delay_ms": threshold_generator(0.2, 0.2, 0, 10000),
+}
+
 object_storages_properties = {
-    "local": {},
+    "local": {**plain_rewritable_properties},
     "s3": {
+        **plain_rewritable_properties,
         "list_object_keys_size": threshold_generator(0.2, 0.2, 1, 10 * 1024 * 1024, 31),
         "metadata_keep_free_space_bytes": threshold_generator(
             0.2, 0.2, 0, 10 * 1024 * 1024
@@ -640,6 +669,7 @@ object_storages_properties = {
         "use_insecure_imds_request": true_false_lambda,
     },
     "azure": {
+        **plain_rewritable_properties,
         "check_objects_after_upload": true_false_lambda,
         "list_object_keys_size": threshold_generator(0.2, 0.2, 1, 10 * 1024 * 1024),
         "max_blocks_in_multipart_upload": threshold_generator(0.2, 0.2, 1, 100000),
@@ -684,6 +714,7 @@ object_storages_properties = {
 metadata_type_properties = {
     "metadata_keep_free_space_bytes": {"local"},
     "object_metadata_cache_size": {"plain"},
+    **{name: {"plain_rewritable"} for name in plain_rewritable_properties},
 }
 
 s3_with_keeper_properties = {
@@ -712,6 +743,7 @@ cache_storage_properties = {
     "cache_hits_threshold": threshold_generator(0.2, 0.2, 0, 10, 4),
     "cache_on_write_operations": true_false_lambda,
     "check_cache_probability": threshold_generator(0.2, 0.2, 0.0, 1.0),
+    "client_weight_persist_interval_sec": threshold_generator(0.2, 0.2, 1, 600),
     "drop_cache_threads": no_zero_threads_lambda,
     "dynamic_resize_lock_wait_ms": threshold_generator(0.2, 0.2, 0, 5000),
     "enable_bypass_cache_with_threshold": true_false_lambda,
@@ -742,6 +774,11 @@ cache_storage_properties = {
     "skip_cache_on_disk_failure": true_false_lambda,
     "slru_size_ratio": threshold_generator(0.2, 0.2, 0.01, 0.99),
     "split_cache_ratio": threshold_generator(0.2, 0.2, 0.01, 0.99),
+    # Used with `use_split_cache`
+    "system_cache_extensions": lambda: random.choice(
+        [".txt,.json,.idx,.cidx,.dat", ".idx", ".mrk2,.idx,.json", ".bin"]
+    ),
+    "use_real_disk_size": true_false_lambda,
     "use_split_cache": true_false_lambda,
     "write_cache_per_user_id_directory": true_false_lambda,
 }
@@ -1117,7 +1154,8 @@ def add_single_disk(
                 for name, generator in object_storages_properties[dict_entry].items()
                 if metadata_type in metadata_type_properties.get(name, {metadata_type})
             }
-            apply_properties_recursively(next_disk, storage_properties)
+            if storage_properties:
+                apply_properties_recursively(next_disk, storage_properties)
         if (
             is_private_binary
             and (object_storage_type == "s3_with_keeper" or metadata_type == "keeper")
@@ -1606,6 +1644,13 @@ class LogTablePropertiesGroup(PropertiesGroup):
             level_xml.text = "test"
         elif self.log_table == "trace_log":
             log_table_properties["symbolize"] = true_false_lambda
+        elif self.log_table == "metric_log" and random.randint(1, 100) <= 70:
+            # `bucketed` is the default; `transposed` and `bucketed` serve
+            # `system.metric_log` with their own log class
+            schema_type_xml = ET.SubElement(property_element, "schema_type")
+            schema_type_xml.text = random.choice(
+                ["wide", "transposed", "transposed_with_wide_view", "bucketed"]
+            )
         elif self.log_table == "transposed_metric_log":
             # Created only with this `schema_type`; the default ("bucketed") makes the section a no-op
             schema_type_xml = ET.SubElement(property_element, "schema_type")
@@ -1856,6 +1901,8 @@ def modify_server_settings(
             ("background_schedule_pool_log", 1048576, 8192),
             ("backup_log", 1048576, 8192),
             ("blob_storage_log", 1048576, 8192),
+            # Its default `schema_type` is the `bucketed` one it needs
+            ("bucketed_metric_log", 1048576, 8192),
             ("crash_log", 1024, 1024),
             ("dead_letter_queue", 1048576, 8192),
             ("delta_lake_metadata_log", 1048576, 8192),
@@ -1931,6 +1978,23 @@ def modify_server_settings(
                 new_element.text = str(next_child())
 
     if modified:
+        # The memory-pressure thresholds must be ordered, a missing one takes its default
+        pressure_levels = [("elevated", 75), ("high", 90), ("critical", 95)]
+        pressure_xmls = [
+            root.find(f"reader_executor_memory_pressure_{level}_level_pct")
+            for level, _ in pressure_levels
+        ]
+        if any(xml is not None for xml in pressure_xmls):
+            values = sorted(
+                int(xml.text) if xml is not None else default
+                for xml, (_, default) in zip(pressure_xmls, pressure_levels)
+            )
+            for (level, _), xml, value in zip(pressure_levels, pressure_xmls, values):
+                if xml is None:
+                    xml = ET.SubElement(
+                        root, f"reader_executor_memory_pressure_{level}_level_pct"
+                    )
+                xml.text = str(value)
         # Make sure `path` in distributed_ddl is set
         distributed_ddl_xml = root.find("distributed_ddl")
         if distributed_ddl_xml is not None and distributed_ddl_xml.find("path") is None:
@@ -2055,6 +2119,8 @@ keeper_settings = {
     "coordination_settings": {
         "async_replication": true_false_lambda,
         "auto_forwarding": true_false_lambda,
+        "block_cache_size": threshold_generator(0.2, 0.2, 0, 256 * 1024 * 1024),
+        "block_cache_size_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
         "check_node_acl_on_remove": true_false_lambda,
         "commit_logs_cache_entry_count_threshold": threshold_generator(
             0.2, 0.2, 0, 100000, 17
@@ -2079,6 +2145,9 @@ keeper_settings = {
             0.2, 0.2, 0, 100000, 17
         ),
         "dispatch_busy_wait_sleep_us": threshold_generator(0.2, 0.2, 0, 10000),
+        "file_block_group_compressed_size": threshold_generator(
+            0.2, 0.2, 4096, 4 * 1024 * 1024, 23
+        ),
         "file_block_size": threshold_generator(0.2, 0.2, 4096, 262144, 18),
         "flush_threads": threshold_generator(0.2, 0.2, 1, 8, 3),
         "force_sync": true_false_lambda,
@@ -2105,6 +2174,7 @@ keeper_settings = {
             0.2, 0.2, 1000, 60000, 16
         ),
         "log_readahead_max_peer_readers": threshold_generator(0.2, 0.2, 1, 8, 3),
+        "log_readahead_pool_threads": threads_lambda,
         "log_readahead_serve_wait_timeout_ms": threshold_generator(
             0.2, 0.2, 1, 1000, 10
         ),
@@ -2116,6 +2186,10 @@ keeper_settings = {
         ),
         "log_slow_cpu_threshold_ms": threshold_generator(0.2, 0.2, 0, 5000),
         "log_slow_total_threshold_ms": threshold_generator(0.2, 0.2, 0, 30000),
+        "log_startup_read_buffer_size": threshold_generator(
+            0.2, 0.2, 1, 64 * 1024 * 1024, 27
+        ),
+        "log_startup_read_max_streams": threads_lambda,
         # Always above the upper bound of min_files_to_merge
         "max_files_to_merge": threshold_generator(0.2, 0.2, 20, 100, 7),
         "max_flush_batch_size": threshold_generator(0.2, 0.2, 0, 2000),
@@ -2157,6 +2231,7 @@ keeper_settings = {
         ),
         "nuraft_max_log_gap_in_stream": threshold_generator(0.2, 0.2, 0, 1024),
         "nuraft_max_uncommitted_log_entries": threshold_generator(0.2, 0.2, 0, 1000000),
+        "nuraft_snapshot_sync_ctx_timeout_ms": threshold_generator(0.2, 0.2, 0, 60000),
         "nuraft_streaming_mode": true_false_lambda,
         "nuraft_use_bg_thread_for_snapshot_io": true_false_lambda,
         "optimize_read_order": true_false_lambda,
@@ -2171,9 +2246,21 @@ keeper_settings = {
         "session_shutdown_timeout": threshold_generator(0.2, 0.2, 5000, 30000),
         "shutdown_timeout": threshold_generator(0.2, 0.2, 3000, 30000),
         "sleep_before_leader_change_ms": threshold_generator(0.2, 0.2, 1000, 30000),
+        "slow_member_backpressure_max_uncommitted_log_entries": threshold_generator(
+            0.2, 0.2, 0, 100000
+        ),
+        "slow_member_backpressure_no_progress_timeout_ms": threshold_generator(
+            0.2, 0.2, 0, 600000
+        ),
         "snapshot_distance": threshold_generator(0.2, 0.2, 0, 100000),
         "snapshot_transfer_chunk_size": threshold_generator(
             0.2, 0.2, 0, 16 * 1024 * 1024
+        ),
+        # Used with a nonzero `snapshot_transfer_chunk_size`
+        "snapshot_transfer_remote_disk_streaming": true_false_lambda,
+        # Used with `compress_snapshots_with_zstd_format`; negative levels are the fast ones
+        "snapshot_zstd_compression_level": lambda: random.choice(
+            [-5, -1, 1, 3, 9, 19, 22]
         ),
         "snapshots_to_keep": threshold_generator(0.2, 0.2, 0, 5),
         "sorted_file_uncompressed_size": threshold_generator(
@@ -2231,6 +2318,7 @@ keeper_settings = {
     "hostname_checks_enabled": true_false_lambda,
     "max_memory_usage_soft_limit": threshold_generator(0.2, 0.2, 0, 1000),
     "max_memory_usage_soft_limit_ratio": threshold_generator(0.2, 0.2, 0.0, 1.0),
+    "remove_orphaned_nodes_on_startup": true_false_lambda,
     "upload_snapshot_on_exit": true_false_lambda,
     **rocksdb_properties,
 }
