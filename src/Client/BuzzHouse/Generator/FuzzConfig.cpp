@@ -1,4 +1,5 @@
 #include <Client/BuzzHouse/Generator/FuzzConfig.h>
+#include <Client/BuzzHouse/Generator/RandomGenerator.h>
 
 #include <ranges>
 #include <IO/copyData.h>
@@ -489,6 +490,7 @@ FuzzConfig::FuzzConfig(DB::ClientBase * c, const String & path)
         {"hot_settings", [&](const JSONObjectType & value) { hot_settings = loadArray(value); }},
         {"disallowed_settings", [&](const JSONObjectType & value) { disallowed_settings = loadArray(value); }},
         {"hot_table_settings", [&](const JSONObjectType & value) { hot_table_settings = loadArray(value); }},
+        {"hot_formats", [&](const JSONObjectType & value) { hot_formats = loadArray(value); }},
         {"disabled_types", parseDisabledOptions(type_mask, "disabled_types", type_entries)},
         {"disabled_engines", parseDisabledOptions(engine_mask, "disabled_engines", engine_entries)},
         {"disallowed_error_codes", parseErrorCodes(disallowed_error_codes)},
@@ -930,6 +932,14 @@ void FuzzConfig::loadServerConfigurations()
             "No {} formats were loaded from the server; cannot continue fuzzing",
             this->in_formats.empty() ? "input" : (this->out_formats.empty() ? "output" : "input and output"));
     }
+    for (const auto & entry : this->hot_formats)
+    {
+        if (std::ranges::find(this->in_formats, entry) == this->in_formats.end()
+            && std::ranges::find(this->out_formats, entry) == this->out_formats.end())
+        {
+            throw DB::Exception(DB::ErrorCodes::BUZZHOUSE, "Unknown format: {}", entry);
+        }
+    }
     loadServerSettings<String>(
         this->storage_policies, "storage policies", R"(SELECT DISTINCT "policy_name" FROM "system"."storage_policies")");
     loadServerSettings<String>(
@@ -1355,6 +1365,22 @@ uint32_t FuzzConfig::tableCountConstraints(const String & database, const String
 String FuzzConfig::tableGetRandomConstraint(const uint64_t rand_val, const String & database, const String & table)
 {
     return tableGetRandomSystemName(rand_val, "constraints", database, table);
+}
+
+String FuzzConfig::pickFormat(RandomGenerator & rg, const DB::Strings & formats) const
+{
+    if (!this->hot_formats.empty() && rg.nextSmallNumber() < 4)
+    {
+        DB::Strings hot;
+
+        std::ranges::copy_if(
+            this->hot_formats, std::back_inserter(hot), [&](const String & f) { return std::ranges::find(formats, f) != formats.end(); });
+        if (!hot.empty())
+        {
+            return rg.pickRandomly(hot);
+        }
+    }
+    return rg.pickRandomly(formats);
 }
 
 String FuzzConfig::getRandomDistributedCacheServer(const uint64_t rand_val)

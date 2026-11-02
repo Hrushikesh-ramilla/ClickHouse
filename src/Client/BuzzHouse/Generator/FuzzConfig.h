@@ -281,6 +281,8 @@ String escapeSQLString(const String & s, char escape_char = '\'');
 /// Spaces are encoded as '+'; all other non-unreserved characters as %XX.
 String urlEncodeQueryParam(const String & s);
 
+class RandomGenerator;
+
 class FuzzConfig
 {
 private:
@@ -312,6 +314,7 @@ public:
     DB::Strings hot_settings;
     DB::Strings disallowed_settings;
     DB::Strings hot_table_settings;
+    DB::Strings hot_formats;
     DB::Strings tokenizers;
 
     std::vector<CHFunction> det_funcs;
@@ -494,6 +497,9 @@ public:
     String tableGetRandomConstraint(uint64_t rand_val, const String & database, const String & table);
 
     String getRandomDistributedCacheServer(uint64_t rand_val);
+
+    /// Half of the times one of the hot formats in `formats`, if any
+    String pickFormat(RandomGenerator & rg, const DB::Strings & formats) const;
 
     void comparePerformanceResults(const String & oracle_name, PerformanceResult & server, PerformanceResult & peer) const;
 

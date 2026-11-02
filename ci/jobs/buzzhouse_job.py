@@ -309,6 +309,9 @@ def main():
             "vertical_merge_algorithm_min_bytes_to_activate",
         ],
     }
+    if random.randint(1, 3) == 1:
+        # Formats to pick more often
+        buzz_config["hot_formats"] = ["Avro", "ORC", "Parquet", "Vortex"]
     with open(buzz_config_file, "w") as outfile:
         outfile.write(json.dumps(buzz_config))
 

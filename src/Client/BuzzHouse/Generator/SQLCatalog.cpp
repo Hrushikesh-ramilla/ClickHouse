@@ -826,8 +826,7 @@ void SQLBase::setTablePath(RandomGenerator & rg, const FuzzConfig & fc, const bo
     }
     else if (isFileEngine() || ((isAnyS3Engine() || isAnyAzureEngine() || isURLEngine() || isKafkaEngine()) && rg.nextMediumNumber() < 91))
     {
-        /// At the moment give more preference for Parquet
-        file_format = rg.nextMediumNumber() < 26 ? "Parquet" : rg.pickRandomly(fc.in_out_formats);
+        file_format = fc.pickFormat(rg, fc.in_out_formats);
     }
     if ((isAnyLakeEngine() || isAnyS3Engine() || isAnyAzureEngine() || isFileEngine() || isURLEngine()) && rg.nextMediumNumber() < 41)
     {
