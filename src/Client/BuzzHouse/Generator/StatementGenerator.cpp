@@ -171,14 +171,15 @@ StatementGenerator::StatementGenerator(
               {0.01, 0.03}, /// MergeTextIndexUDF
               {0.01, 0.03}, /// MergeIndexAnalyzeUDF
               {0.01, 0.03}, /// MergeCodecBlockCountsUDF
-              {0.005, 0.02} /// FilesystemUDF (filesystem reads files, gate behind allow_not_deterministic)
+              {0.005, 0.02}, /// FilesystemUDF (filesystem reads files, gate behind allow_not_deterministic)
+              {0.005, 0.02} /// ObfuscateUDF (an infinite source, gate behind allow_infinite_tables)
           }},
           "SQL queries"))
     , SQLMask(static_cast<size_t>(SQLOp::CreateHypotheticalProjection) + 1, true)
     , litMask(static_cast<size_t>(LitOp::LitFraction) + 1, true)
     , expMask(static_cast<size_t>(ExpOp::LitAccurateCast) + 1, true)
     , predMask(static_cast<size_t>(PredOp::OtherExpr) + 1, true)
-    , queryMask(static_cast<size_t>(QueryOp::FilesystemUDF) + 1, true)
+    , queryMask(static_cast<size_t>(QueryOp::ObfuscateUDF) + 1, true)
 {
     chassert(enum8_ids.size() > enum_values.size() && enum16_ids.size() > enum_values.size());
 
@@ -1550,7 +1551,30 @@ void StatementGenerator::generateInsertToTable(
 
 void StatementGenerator::generateNextInsert(RandomGenerator & rg, const bool in_parallel, Insert * ins)
 {
-    generateInsertToTable(rg, rg.pickRandomly(filterCollection<SQLTable>(attached_tables)), in_parallel, std::nullopt, ins);
+    const SQLTable & t = rg.pickRandomly(filterCollection<SQLTable>(attached_tables));
+
+    generateInsertToTable(rg, t, in_parallel, std::nullopt, ins);
+    if (rg.nextSmallNumber() < 3)
+    {
+        /// `RETURNING (SELECT ...)` runs a query on top of the inserted blocks, read through the table name in FROM.
+        /// Without FROM it reads them implicitly, the only way for a table function target
+        const bool implicit = !ins->tof().has_est() || rg.nextBool();
+
+        this->levels[this->current_level] = QueryLevel(this->current_level);
+        if (implicit)
+        {
+            addTableRelation(rg, false, "", t);
+        }
+        generateSelect(
+            rg,
+            true,
+            false,
+            rg.randomInt<uint32_t>(1, 5),
+            implicit ? (std::numeric_limits<uint32_t>::max() & ~allow_from) : std::numeric_limits<uint32_t>::max(),
+            std::nullopt,
+            ins->mutable_returning());
+        this->levels.clear();
+    }
 }
 
 void StatementGenerator::generateUptDelWhere(RandomGenerator & rg, const SQLTable & t, Expr * expr)
@@ -2121,10 +2145,17 @@ std::optional<String> StatementGenerator::alterSingleTable(
              {
                  RemoveColumnProperty * rcs = ati->mutable_column_remove_property();
                  std::uniform_int_distribution<uint32_t> prop_range(1, static_cast<uint32_t>(RemoveColumnProperty::ColumnProperties_MAX));
-                 flatTableColumnPath(flat_nested, t.cols, [](const SQLColumn &) { return true; });
+                 rcs->set_property(static_cast<RemoveColumnProperty_ColumnProperties>(prop_range(rg.generator)));
+                 /// Any column or subcolumn of a MergeTree table can have its codec removed, declared or not
+                 const bool sub_codec = is_mt && rcs->property() == RemoveColumnProperty_ColumnProperties_CODEC;
+                 flatTableColumnPath(sub_codec ? codec_paths : flat_nested, t.cols, [](const SQLColumn &) { return true; });
                  columnPathRef(rg.pickRandomly(this->entries), rcs->mutable_col());
                  this->entries.clear();
-                 rcs->set_property(static_cast<RemoveColumnProperty_ColumnProperties>(prop_range(rg.generator)));
+             }},
+            {3 * static_cast<uint32_t>(is_mt),
+             [&]
+             {
+                 addTableCodec(rg, t, ati->mutable_column_modify_codec());
              }},
             {2 * static_cast<uint32_t>(has_col_settings),
              [&]
@@ -3638,7 +3669,8 @@ static const std::vector<ExplainOptValues> explainSettings{
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_empirical, trueOrFalseInt),
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_compact_repeated_processor_chains, trueOrFalseInt),
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_processors, trueOrFalseInt),
-    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_single_record, trueOrFalseInt)};
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_single_record, trueOrFalseInt),
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_fragments, trueOrFalseInt)};
 
 void StatementGenerator::generateNextCreateHypotheticalIndex(RandomGenerator & rg, CreateHypotheticalIndex * hi)
 {
@@ -3689,6 +3721,8 @@ void StatementGenerator::generateNextExplain(RandomGenerator & rg, bool in_paral
                     this->ids.insert(this->ids.end(), {3, 4, 5, 6, 7});
                     break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_PLAN:
+                    this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 27});
+                    break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_ESTIMATE:
                     this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22});
                     break;
@@ -3708,7 +3742,7 @@ void StatementGenerator::generateNextExplain(RandomGenerator & rg, bool in_paral
         }
         else
         {
-            this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22});
+            this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 27});
         }
         if (!this->ids.empty())
         {

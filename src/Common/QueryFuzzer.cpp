@@ -38,6 +38,7 @@
 #include <Parsers/ASTBackupQuery.h>
 #include <Parsers/ASTCheckDatabaseQuery.h>
 #include <Parsers/ASTCheckQuery.h>
+#include <Parsers/ASTCodecDeclaration.h>
 #include <Parsers/ASTColumnDeclaration.h>
 #include <Parsers/ASTColumnsMatcher.h>
 #include <Parsers/ASTColumnsTransformers.h>
@@ -83,6 +84,7 @@
 #include <Parsers/ASTSQLSecurity.h>
 #include <Parsers/ASTSampleRatio.h>
 #include <Parsers/ASTSelectIntersectExceptQuery.h>
+#include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTSetQuery.h>
 #include <Parsers/ASTShowColumnsQuery.h>
@@ -324,6 +326,7 @@ static const Strings & dataFormats()
         "SQLInsert",
         "XML",
         "Npy",
+        "Vortex",
         "Null",
     };
     return data_formats;
@@ -2095,6 +2098,9 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
     if (create.columns_list && create.columns_list->columns)
         fuzzColumnDeclarationList(*create.columns_list->columns);
 
+    if (create.columns_list)
+        fuzzCodecDeclarations(*create.columns_list);
+
     if (create.columns_list && create.columns_list->indices)
         fuzzIndexDeclarationList(*create.columns_list->indices);
 
@@ -2178,6 +2184,7 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
             {
                 if (inner_cols->columns)
                     fuzzColumnDeclarationList(*inner_cols->columns);
+                fuzzCodecDeclarations(*inner_cols);
                 if (inner_cols->indices)
                     fuzzIndexDeclarationList(*inner_cols->indices);
                 if (inner_cols->projections)
@@ -2770,6 +2777,7 @@ void QueryFuzzer::fuzzCodecFunction(ASTFunction & codec_fn)
            "Gorilla",
            "FPC",
            "ALP",
+           "PCO",
            "SZ3",
            "Quantized"};
 
@@ -2792,6 +2800,9 @@ void QueryFuzzer::fuzzCodecFunction(ASTFunction & codec_fn)
     else if (chosen == "ZXC" && fuzz_rand() % 2 == 0)
         /// Optional compression level, 1 (fastest) to 7 (max density); default is 3.
         codec_fn.arguments->children.push_back(makeASTFunction("ZXC", make_intrusive<ASTLiteral>(UInt64(fuzz_rand() % 7 + 1))));
+    else if (chosen == "PCO" && fuzz_rand() % 2 == 0)
+        /// Optional compression level, 0 to 12; default is 8.
+        codec_fn.arguments->children.push_back(makeASTFunction("PCO", make_intrusive<ASTLiteral>(UInt64(fuzz_rand() % 13))));
     else if (chosen == "GDeflate" && fuzz_rand() % 2 == 0)
         /// Optional compression level, 1 (fastest) to 12 (densest); default is 6.
         codec_fn.arguments->children.push_back(makeASTFunction("GDeflate", make_intrusive<ASTLiteral>(UInt64(fuzz_rand() % 12 + 1))));
@@ -3314,6 +3325,67 @@ void QueryFuzzer::fuzzIndexDeclaration(ASTIndexDeclaration & index)
             if (index_type->arguments)
                 index_type->arguments->children.clear();
         }
+    }
+}
+
+void QueryFuzzer::fuzzCodecTarget(String & name)
+{
+    static const Strings subcolumns = {"null", "size", "size0", "size1", "keys", "values", "1", "2"};
+
+    if (const size_t dot = name.rfind('.'); dot != String::npos && fuzz_rand() % 2 == 0)
+        name.resize(dot);
+    else
+        name += "." + pickRandomly(fuzz_rand, subcolumns);
+}
+
+void QueryFuzzer::fuzzCodecDeclarations(ASTColumns & columns_list)
+{
+    Strings column_names;
+
+    if (columns_list.columns)
+        for (const auto & column_ast : columns_list.columns->children)
+            if (const auto * column = column_ast->as<ASTColumnDeclaration>())
+                column_names.push_back(column->name);
+
+    /// A new declaration for a column, or one of its subcolumns, so queries without any get them too
+    if (!column_names.empty() && fuzz_rand() % 20 == 0)
+    {
+        String name = pickRandomly(fuzz_rand, column_names);
+        if (fuzz_rand() % 2 == 0)
+            fuzzCodecTarget(name);
+        auto codec = makeASTFunction("CODEC", makeASTFunction("LZ4"));
+        fuzzCodecFunction(*codec);
+        if (!columns_list.codec_declarations)
+            columns_list.set(columns_list.codec_declarations, make_intrusive<ASTExpressionList>());
+        columns_list.codec_declarations->children.push_back(make_intrusive<ASTCodecDeclaration>(name, std::move(codec)));
+    }
+    if (!columns_list.codec_declarations)
+        return;
+
+    auto & declarations = columns_list.codec_declarations->children;
+    if (declarations.size() > 1 && fuzz_rand() % 5 == 0)
+        std::shuffle(declarations.begin(), declarations.end(), fuzz_rand);
+    if (declarations.size() > 1 && fuzz_rand() % 10 == 0)
+        declarations.erase(declarations.begin() + fuzz_rand() % declarations.size());
+    /// The same target declared twice
+    if (!declarations.empty() && fuzz_rand() % 20 == 0)
+        declarations.push_back(declarations[fuzz_rand() % declarations.size()]->clone());
+
+    for (auto & declaration_ast : declarations)
+    {
+        auto * declaration = declaration_ast->as<ASTCodecDeclaration>();
+        if (!declaration)
+            continue;
+        /// Retarget to another column, a subcolumn inside the target, or the parent of the target
+        if (fuzz_rand() % 10 == 0)
+        {
+            if (!column_names.empty() && fuzz_rand() % 3 == 0)
+                declaration->name = pickRandomly(fuzz_rand, column_names);
+            else
+                fuzzCodecTarget(declaration->name);
+        }
+        if (auto * codec_fn = declaration->getCodec()->as<ASTFunction>())
+            fuzzCodecFunction(*codec_fn);
     }
 }
 
@@ -4261,7 +4333,8 @@ void QueryFuzzer::fuzzExplainSettings(ASTSetQuery & settings_ast, ASTExplainQuer
           "input_headers",
           "compact",
           "column_structure",
-          "pretty"}},
+          "pretty",
+          "fragments"}},
         {ASTExplainQuery::ExplainKind::QueryPipeline, {"header", "graph", "compact", "compact_repeated_processor_chains", "distributed"}},
         {ASTExplainQuery::ExplainKind::Analyze,
          {"header",
@@ -4289,7 +4362,8 @@ void QueryFuzzer::fuzzExplainSettings(ASTSetQuery & settings_ast, ASTExplainQuer
           "input_headers",
           "compact",
           "column_structure",
-          "pretty"}},
+          "pretty",
+          "fragments"}},
         {ASTExplainQuery::ExplainKind::TableOverride, {}},
         {ASTExplainQuery::ExplainKind::CurrentTransaction, {}},
         {ASTExplainQuery::ExplainKind::WhatIf, {"empirical"}}};
@@ -5860,6 +5934,9 @@ static const std::vector<std::unordered_set<String>> & swapFuncs()
              "arrayJaccardIndex",
              "arrayRandomSample",
              "arrayShingles",
+             "arrayPermutations",
+             "arrayPartialPermutations",
+             "arrayCombinations",
              "arrayShiftLeft",
              "arrayShiftRight",
              "arrayUnion",
@@ -5965,7 +6042,7 @@ static const std::vector<std::unordered_set<String>> & swapFuncs()
             /// Higher-order map functions (lambda, map → map or UInt8)
             higherOrderMapFuncs(),
             /// Binary encoding (bytes → encoded String)
-            {"hex", "bin", "base32Encode", "base58Encode", "base64Encode", "base64URLEncode"},
+            {"hex", "bin", "base32Encode", "base58Encode", "base64Encode", "base64URLEncode", "encodeQuotedPrintable"},
             /// Binary decoding (encoded String → bytes)
             {"unhex",
              "unbin",
@@ -5976,7 +6053,8 @@ static const std::vector<std::unordered_set<String>> & swapFuncs()
              "base64Decode",
              "base64URLDecode",
              "tryBase64Decode",
-             "tryBase64URLDecode"},
+             "tryBase64URLDecode",
+             "decodeQuotedPrintable"},
             /// Integer bitmask expansion (single number → array/list of set bits)
             {"bitPositionsToArray", "bitmaskToArray", "bitmaskToList"},
             /// Space-filling curve decoders (tuple_size, code → tuple)
@@ -6021,7 +6099,8 @@ static const std::vector<std::unordered_set<String>> & swapFuncs()
              "JSONExtractString",
              "JSONExtractStringCaseInsensitive",
              "JSONExtractUInt",
-             "JSONExtractUIntCaseInsensitive"},
+             "JSONExtractUIntCaseInsensitive",
+             "JSONRemove"},
             /// JSON predicates / metadata (json[, path] → scalar)
             {"JSONHas", "JSONLength", "JSONType", "JSONKey", "isValidJSON", "JSONArrayLength"},
             /// JSON-typed column path/value introspection (JSON column -> Array/Map)
@@ -6288,15 +6367,21 @@ static const std::vector<std::unordered_set<String>> & swapFuncs()
             /// Encryption functions (mode, data, key[, iv]); `encrypt` → `decrypt` feeds
             /// plaintext into ciphertext validation, `tryDecrypt` adds the nullable path
             {"aes_decrypt_mysql", "aes_encrypt_mysql", "decrypt", "encrypt", "tryDecrypt"},
+            /// IP address encryption (ip, key → IP or String); the prefix variants keep the address family
+            {"ipcryptEncrypt", "ipcryptDecrypt", "ipcryptPrefixEncrypt", "ipcryptPrefixDecrypt"},
             /// String distance / similarity metrics (String, String → number)
             {"byteHammingDistance",
              "damerauLevenshteinDistance",
              "editDistance",
              "editDistanceUTF8",
+             "editDistanceRatio",
+             "editDistanceRatioUTF8",
              "jaroSimilarity",
              "jaroWinklerSimilarity",
              "stringJaccardIndex",
-             "stringJaccardIndexUTF8"},
+             "stringJaccardIndexUTF8",
+             "stringSimilarityRatio",
+             "stringSimilarityRatioUTF8"},
             /// N-gram distance / search (haystack, needle → Float32)
             {"ngramDistance",
              "ngramDistanceCaseInsensitive",
@@ -6318,6 +6403,9 @@ static const std::vector<std::unordered_set<String>> & swapFuncs()
              "areaSpherical",
              "perimeterCartesian",
              "perimeterSpherical",
+             "lengthCartesian",
+             "lengthSpherical",
+             "lengthSpheroid",
              "wkt",
              "polygonConvexHullCartesian",
              "polygonAreaCartesian",
@@ -7980,6 +8068,35 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
         /// Shuffle the explicit column list (permutes the column <-> value mapping)
         if (insert_query->columns && insert_query->columns->children.size() > 1 && fuzz_rand() % 50 == 0)
             std::shuffle(insert_query->columns->children.begin(), insert_query->columns->children.end(), fuzz_rand);
+        /// Drop `RETURNING (SELECT ...)`, or add one reading `*`, `count()` or a listed column of the target table
+        if (insert_query->returning && fuzz_rand() % 20 == 0)
+        {
+            auto & ch = insert_query->children;
+            ch.erase(std::remove(ch.begin(), ch.end(), insert_query->returning), ch.end());
+            insert_query->returning = {};
+        }
+        else if (!insert_query->returning && insert_query->table && fuzz_rand() % 30 == 0)
+        {
+            auto select_list = make_intrusive<ASTExpressionList>();
+            if (insert_query->columns && !insert_query->columns->children.empty() && fuzz_rand() % 3 == 0)
+                select_list->children.push_back(
+                    insert_query->columns->children[fuzz_rand() % insert_query->columns->children.size()]->clone());
+            else if (fuzz_rand() % 2 == 0)
+                select_list->children.push_back(makeASTFunction("count"));
+            else
+                select_list->children.push_back(make_intrusive<ASTAsterisk>());
+
+            auto select_query = make_intrusive<ASTSelectQuery>();
+            select_query->setExpression(ASTSelectQuery::Expression::SELECT, std::move(select_list));
+            select_query->replaceDatabaseAndTable(insert_query->getDatabase(), insert_query->getTable());
+
+            auto union_query = make_intrusive<ASTSelectWithUnionQuery>();
+            union_query->list_of_selects = make_intrusive<ASTExpressionList>();
+            union_query->list_of_selects->children.push_back(std::move(select_query));
+            union_query->children.push_back(union_query->list_of_selects);
+            insert_query->returning = union_query;
+            insert_query->children.push_back(insert_query->returning);
+        }
         /// INSERT INTO FUNCTION: swap the table function within its group
         fuzzTableFunctionName(insert_query->table_function);
         fuzz(insert_query->children);
@@ -8153,7 +8270,13 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 /// exercise it here too so ALTER ADD/MODIFY COLUMN paths get the same coverage
                 if (alter_cmd->col_decl)
                     if (auto * col = alter_cmd->col_decl->as<ASTColumnDeclaration>())
+                    {
                         fuzzColumnDeclaration(*col);
+                        /// `MODIFY COLUMN <subcolumn> CODEC(...)` and `... REMOVE CODEC` change the codec of one stream
+                        if (alter_cmd->type == ASTAlterCommand::MODIFY_COLUMN && (col->getCodec() || alter_cmd->remove_property == "CODEC")
+                            && fuzz_rand() % 10 == 0)
+                            fuzzCodecTarget(col->name);
+                    }
                 if (fuzz_rand() % 20 == 0)
                     alter_cmd->first = !alter_cmd->first;
                 if (fuzz_rand() % 20 == 0)

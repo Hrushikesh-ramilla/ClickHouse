@@ -244,6 +244,15 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 1, 64)); },
          {"1", "2", "4", "8", "16", "32"},
          false)},
+    {"max_bytes_to_buffer_for_packed_part",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"0", "1", "1048576"};
+             return rg.pickRandomly(choices);
+         },
+         {"0", "1", "1048576"},
+         false)},
     {"max_bytes_to_merge_at_max_space_in_pool", bytesRangeSetting},
     {"max_bytes_to_merge_at_min_space_in_pool", bytesRangeSetting},
     {"max_cleanup_delay_period", highRangeSetting},
@@ -261,6 +270,15 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
     {"max_files_to_remove_in_alter_columns",
      CHSetting(
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 1, 100)); }, {}, false)},
+    {"max_memory_ratio_to_activate_adaptive_write_buffer",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"0", "0.03125", "1"};
+             return rg.pickRandomly(choices);
+         },
+         {"0", "0.03125", "1"},
+         false)},
     {"max_merge_delayed_streams_for_parallel_write", threadSetting},
     {"max_merge_selecting_sleep_ms", highRangeSetting},
     {"max_number_of_merges_with_ttl_in_pool", threadSetting},
@@ -331,6 +349,15 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, 100)); },
          {"0", "1", "2", "8", "10", "100"},
          false)},
+    {"merge_memory_estimate_per_source_part_column",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"0", "1", "4096", "1048576"};
+             return rg.pickRandomly(choices);
+         },
+         {"0", "1", "4096", "1048576"},
+         false)},
     {"merge_selecting_sleep_ms", highRangeSetting},
     {"merge_selecting_sleep_slowdown_factor",
      CHSetting(
@@ -360,6 +387,25 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.3, 0.2, 0, 60)); },
          {"0", "1", "5", "10"},
          false)},
+    {"merge_selector_small_parts_max_age",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"0", "1", "600", "3600"};
+             return rg.pickRandomly(choices);
+         },
+         {"0", "1", "600", "3600"},
+         false)},
+    {"merge_selector_small_parts_min_count",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"0", "1", "2", "10"};
+             return rg.pickRandomly(choices);
+         },
+         {"0", "1", "2", "10"},
+         false)},
+    {"merge_selector_small_parts_threshold", bytesRangeSetting},
     {"merge_selector_window_size", rowsRangeSetting},
     {"merge_total_max_bytes_to_prewarm_cache", bytesRangeSetting},
     {"merge_tree_clear_old_parts_interval_seconds", highRangeSetting},
@@ -532,6 +578,7 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
     {"prefer_fetch_merged_part_time_threshold", highRangeSetting},
     {"prewarm_mark_cache", trueOrFalseSetting},
     {"prewarm_primary_key_cache", trueOrFalseSetting},
+    {"prewarm_statistics_cache", trueOrFalseSetting},
     {"primary_key_compress_block_size", highRangeNonZeroSetting},
     {"primary_key_lazy_load", trueOrFalseSetting},
     {"primary_key_ratio_of_unique_prefix_values_to_skip_suffix_columns", probRangeSetting},
@@ -539,11 +586,6 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
     {"ratio_of_defaults_for_sparse_serialization", CHSetting(probRange, {"0", "0.0001", "0.001", "0.003", "0.005", "0.01", "0.1"}, false)},
     {"reduce_blocking_parts_sleep_ms", highRangeSetting},
     {"refresh_parts_interval",
-     CHSetting(
-         [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, 5)); },
-         {"0", "1", "2", "5"},
-         false)},
-    {"refresh_statistics_interval",
      CHSetting(
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, 5)); },
          {"0", "1", "2", "5"},

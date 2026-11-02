@@ -120,6 +120,8 @@ const constexpr uint32_t collect_generated = (1 << 0), flat_tuple = (1 << 1), fl
                          skip_tuple_node = (1 << 4), skip_nested_node = (1 << 5), to_table_entries = (1 << 6), to_remote_entries = (1 << 7);
 
 void collectColumnPaths(String cname, SQLType * tp, uint32_t flags, ColumnPathChain & next, std::vector<ColumnPathChain> & paths);
+/// Paths that can get a codec: the columns and their subcolumns
+const constexpr uint32_t codec_paths = flat_tuple | flat_nested | skip_nested_node | collect_generated;
 
 class CatalogBackup
 {
@@ -386,7 +388,8 @@ private:
         MergeTextIndexUDF,
         MergeIndexAnalyzeUDF,
         MergeCodecBlockCountsUDF,
-        FilesystemUDF
+        FilesystemUDF,
+        ObfuscateUDF
     };
 
     ProbabilityGenerator SQLGen;
@@ -576,6 +579,7 @@ private:
     void addTableIndex(RandomGenerator & rg, SQLTable & t, IndexUsage usage, IndexDef * idef);
     void addTableProjection(RandomGenerator & rg, SQLTable & t, ProjectionUsage usage, ProjectionDef * pdef);
     void addTableConstraint(RandomGenerator & rg, SQLTable & t, ConstraintDef * cdef);
+    void addTableCodec(RandomGenerator & rg, const SQLTable & t, ColumnCodec * cc);
     void generateTableKey(RandomGenerator & rg, const SQLRelation & rel, const SQLBase & b, bool allow_asc_desc, TableKey * tkey);
     void setClusterClause(RandomGenerator & rg, const std::optional<String> & cluster, Cluster * clu, bool force = false) const;
     void setClusterInfo(RandomGenerator & rg, SQLBase & b) const;

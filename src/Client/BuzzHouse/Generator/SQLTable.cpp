@@ -2193,6 +2193,17 @@ void StatementGenerator::addTableProjection(RandomGenerator & rg, SQLTable & t, 
     this->inside_projection = false;
 }
 
+/// `CODEC <path> (...)` sets the codec of a column or of one of its subcolumns
+void StatementGenerator::addTableCodec(RandomGenerator & rg, const SQLTable & t, ColumnCodec * cc)
+{
+    flatTableColumnPath(codec_paths, t.cols, [](const SQLColumn &) { return true; });
+    const ColumnPathChain & entry = rg.pickRandomly(this->entries);
+
+    columnPathRef(entry, cc->mutable_col());
+    cc->set_codecs(generateNextCodecStringForType(rg, entry.getBottomType()));
+    this->entries.clear();
+}
+
 void StatementGenerator::addTableConstraint(RandomGenerator & rg, SQLTable & t, ConstraintDef * cdef)
 {
     String crname = rg.nextIdentifier("c", t.constr_counter++, fc.allow_nasty_identifiers);
@@ -2565,6 +2576,7 @@ void StatementGenerator::generateNextCreateTable(RandomGenerator & rg, const boo
         uint32_t added_idxs = 0;
         uint32_t added_projs = 0;
         uint32_t added_consts = 0;
+        uint32_t added_codecs = 0;
         uint32_t added_ttl_expr = 0;
         uint32_t added_id_expr = 0;
         uint32_t added_sign = 0;
@@ -2576,20 +2588,23 @@ void StatementGenerator::generateNextCreateTable(RandomGenerator & rg, const boo
         const uint32_t to_addprojs
             = rg.randomInt<uint32_t>(1, 2) * static_cast<uint32_t>(next.isMergeTreeFamily() && rg.nextSmallNumber() < 8);
         const uint32_t to_addconsts = rg.randomInt<uint32_t>(1, 2) * static_cast<uint32_t>(rg.nextSmallNumber() < 3);
+        const uint32_t to_addcodecs
+            = rg.randomInt<uint32_t>(1, 3) * static_cast<uint32_t>(next.isMergeTreeFamily() && rg.nextSmallNumber() < 4);
         const uint32_t to_add_ttl_expr = static_cast<uint32_t>(has_ttl && rg.nextBool());
         const uint32_t to_add_id_cols
             = rg.randomInt<uint32_t>(1, 2) * static_cast<uint32_t>(!next.isDeterministic() && rg.nextSmallNumber() < 2);
         const uint32_t to_add_sign = static_cast<uint32_t>(next.hasSignColumn());
         const uint32_t to_add_version = static_cast<uint32_t>(next.hasVersionColumn() || add_version_to_replacing);
         const uint32_t to_add_is_deleted = static_cast<uint32_t>(add_version_to_replacing);
-        const uint32_t total_to_add = to_addcols + to_addidxs + to_addprojs + to_addconsts + to_add_ttl_expr + to_add_id_cols + to_add_sign
-            + to_add_version + to_add_is_deleted;
+        const uint32_t total_to_add = to_addcols + to_addidxs + to_addprojs + to_addconsts + to_addcodecs + to_add_ttl_expr + to_add_id_cols
+            + to_add_sign + to_add_version + to_add_is_deleted;
 
         for (uint32_t i = 0; i < total_to_add; i++)
         {
             const uint32_t add_idx = 4 * static_cast<uint32_t>(!next.cols.empty() && added_idxs < to_addidxs);
             const uint32_t add_proj = 4 * static_cast<uint32_t>(!next.cols.empty() && added_projs < to_addprojs);
             const uint32_t add_const = 4 * static_cast<uint32_t>(!next.cols.empty() && added_consts < to_addconsts);
+            const uint32_t add_codec = 4 * static_cast<uint32_t>(!next.cols.empty() && added_codecs < to_addcodecs);
             const uint32_t add_col = 8 * static_cast<uint32_t>(added_cols < to_addcols);
             const uint32_t add_ttl = 2 * static_cast<uint32_t>(added_ttl_expr < to_add_ttl_expr);
             const uint32_t add_id = 2 * static_cast<uint32_t>(added_id_expr < to_add_id_cols);
@@ -2617,6 +2632,12 @@ void StatementGenerator::generateNextCreateTable(RandomGenerator & rg, const boo
                   {
                       addTableConstraint(rg, next, ndef->mutable_const_def());
                       added_consts++;
+                  }},
+                 {add_codec,
+                  [&]
+                  {
+                      addTableCodec(rg, next, ndef->mutable_codec_decl());
+                      added_codecs++;
                   }},
                  {add_col,
                   [&]

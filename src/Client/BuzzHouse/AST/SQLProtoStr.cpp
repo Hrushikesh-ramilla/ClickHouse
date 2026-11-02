@@ -983,6 +983,10 @@ static void BottomTypeNameToString(String & ret, const uint32_t quote, const boo
                                 {
                                     const JSONPathType & jpt = jspec.path_type();
 
+                                    if (jpt.shared())
+                                    {
+                                        ret += "SHARED ";
+                                    }
                                     ColumnPathToString(ret, quote, jpt.col());
                                     ret += " ";
                                     TopTypeNameToString(ret, quote, jpt.type());
@@ -2506,6 +2510,10 @@ CONV_FN(TableFunction, tf)
             break;
         case TableFunctionType::kMtanindex: MergeTreeAnalyzeIndexesFuncToString(ret, tf.mtanindex()); break;
         case TableFunctionType::kFunc: SQLTableFuncCallToString(ret, tf.func()); break;
+        case TableFunctionType::kObfuscate:
+            ret += "obfuscate(";
+            SelectToString(ret, tf.obfuscate());
+            break;
         default: ret += "numbers(10";
     }
     appendHTTPHeaders(ret, tf);
@@ -3279,6 +3287,13 @@ CONV_FN(TableDefItem, tdef)
         case CreateDefType::kIdxDef: IndexDefToString(ret, tdef.idx_def()); break;
         case CreateDefType::kProjDef: ProjectionDefToString(ret, tdef.proj_def()); break;
         case CreateDefType::kConstDef: ConstraintDefToString(ret, tdef.const_def()); break;
+        case CreateDefType::kCodecDecl:
+            ret += "CODEC ";
+            ColumnPathToString(ret, 0, tdef.codec_decl().col());
+            ret += " (";
+            ret += tdef.codec_decl().codecs();
+            ret += ")";
+            break;
         default: ret += "c0 Int";
     }
 }
@@ -3691,6 +3706,13 @@ CONV_FN(Insert, insert)
             }
             ColumnPathToString(ret, 0, insert.cols(i));
         }
+        ret += ")";
+    }
+    if (insert.has_returning())
+    {
+        /// Goes before the data, everything after VALUES or FORMAT is parsed as data
+        ret += " RETURNING (";
+        SelectToString(ret, insert.returning());
         ret += ")";
     }
     ret += " ";
@@ -4774,6 +4796,13 @@ CONV_FN(AlterItem, alter)
         case AlterType::kColumnRemoveProperty:
             ret += "MODIFY COLUMN ";
             RemoveColumnPropertyToString(ret, alter.column_remove_property());
+            break;
+        case AlterType::kColumnModifyCodec:
+            ret += "MODIFY COLUMN ";
+            ColumnPathToString(ret, 0, alter.column_modify_codec().col());
+            ret += " CODEC(";
+            ret += alter.column_modify_codec().codecs();
+            ret += ")";
             break;
         case AlterType::kColumnModifySetting:
             ret += "MODIFY COLUMN ";

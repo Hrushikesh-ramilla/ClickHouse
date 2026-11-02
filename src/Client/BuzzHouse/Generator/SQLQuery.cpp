@@ -780,6 +780,9 @@ StatementGenerator::FromSourceInfo StatementGenerator::joinedTableOrFunction(
     /// `filesystem([path])` reads local files (metadata + optional content) — non-deterministic
     /// and needs FILE access. Don't emit it through `remote()` either.
     queryMask[static_cast<size_t>(QueryOp::FilesystemUDF)] = !under_remote && this->allow_not_deterministic && this->allow_engine_udf;
+    /// `obfuscate(SELECT ...)` trains on the result of its query and then repeats it forever with new values
+    queryMask[static_cast<size_t>(QueryOp::ObfuscateUDF)]
+        = fc.allow_infinite_tables && this->allow_not_deterministic && this->allow_engine_udf && can_recurse;
 
     queryGen.setEnabled(queryMask);
     /// If MV chaining is requested, force the next source to be a view (clears flag after use)
@@ -1326,6 +1329,16 @@ StatementGenerator::FromSourceInfo StatementGenerator::joinedTableOrFunction(
             rel.cols.emplace_back(SQLRelationCol(rel_name, {"depth"}, size_tp.get()));
             rel.cols.emplace_back(SQLRelationCol(rel_name, {"is_symlink"}, uint8_tp.get()));
             rel.cols.emplace_back(SQLRelationCol(rel_name, {"content"}, string_tp.get()));
+            this->levels[this->current_level].rels.emplace_back(rel);
+        }
+        break;
+        case QueryOp::ObfuscateUDF: {
+            /// The obfuscated rows keep the names and types of the query's columns
+            SQLRelation rel(rel_name);
+            const uint32_t ncols = std::max(std::min(this->fc.max_width - this->width, rg.randomInt<uint32_t>(1, 5)), UINT32_C(1));
+
+            generateDerivedTable(
+                rg, rel, allowed_clauses, ncols, rg.nextMediumNumber() < 86, std::nullopt, tof->mutable_tfunc()->mutable_obfuscate());
             this->levels[this->current_level].rels.emplace_back(rel);
         }
         break;
