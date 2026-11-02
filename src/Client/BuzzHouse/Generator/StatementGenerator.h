@@ -582,6 +582,7 @@ private:
     void addTableCodec(RandomGenerator & rg, const SQLTable & t, ColumnCodec * cc);
     void generateTableKey(RandomGenerator & rg, const SQLRelation & rel, const SQLBase & b, bool allow_asc_desc, TableKey * tkey);
     void setClusterClause(RandomGenerator & rg, const std::optional<String> & cluster, Cluster * clu, bool force = false) const;
+    void setDatabaseClusterClause(RandomGenerator & rg, const std::shared_ptr<SQLDatabase> & db, Cluster * clu) const;
     void setClusterInfo(RandomGenerator & rg, SQLBase & b) const;
     template <typename T>
     void randomEngineParams(RandomGenerator & rg, std::optional<SQLRelation> & rel, T * te);

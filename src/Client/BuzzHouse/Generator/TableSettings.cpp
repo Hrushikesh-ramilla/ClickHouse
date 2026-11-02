@@ -892,10 +892,38 @@ static std::unordered_map<String, CHSetting> polygonLayoutSettings = {{"STORE_PO
 
 static std::unordered_map<String, CHSetting> dataLakeSettings;
 
+static const auto icebergSecondsSetting = CHSetting(
+    [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.3, 0.2, 0, 10800)); }, {}, false);
+
+/// The compaction, snapshot lease and metadata prefetch settings are the ones `ALTER TABLE ... MODIFY SETTING` can change
 static std::unordered_map<String, CHSetting> icebergTableOnlySettings
-    = {{"iceberg_format_version",
+    = {{"allow_experimental_cleanup_old_data_files_compaction", trueOrFalseSetting},
+       {"allow_experimental_iceberg_compaction", trueOrFalseSetting},
+       {"iceberg_compaction_commit_batch_size", rowsRangeSetting},
+       {"iceberg_compaction_data_cleanup", icebergSecondsSetting},
+       {"iceberg_compaction_delay_bias", icebergSecondsSetting},
+       {"iceberg_compaction_lock_lease_seconds", icebergSecondsSetting},
+       {"iceberg_compaction_max_bytes_in_data_file", bytesRangeSetting},
+       {"iceberg_compaction_max_rows_in_data_file", rowsRangeSetting},
+       {"iceberg_data_file_size_lower_threshold_compaction", bytesRangeSetting},
+       {"iceberg_data_file_size_upper_threshold_compaction", bytesRangeSetting},
+       {"iceberg_format_version",
         CHSetting([](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(1, 3)); }, {"1", "2", "3"}, false)},
+       {"iceberg_max_number_datafiles_to_compact", rowsRangeSetting},
+       {"iceberg_metadata_async_prefetch_period_ms",
+        CHSetting(
+            [](RandomGenerator & rg, FuzzConfig &)
+            {
+                static const DB::Strings choices = {"0", "1", "100", "1000", "60000"};
+                return rg.pickRandomly(choices);
+            },
+            {},
+            false)},
+       {"iceberg_outdated_snapshot_lifetime_seconds", icebergSecondsSetting},
+       {"iceberg_read_with_snapshot_lease", trueOrFalseSetting},
        {"iceberg_recent_metadata_file_by_last_updated_ms_field", trueOrFalseSetting},
+       {"iceberg_snapshot_lease_seconds",
+        CHSetting([](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(1, 600)); }, {}, false)},
        {"iceberg_use_version_hint", trueOrFalseSetting}};
 
 static std::unordered_map<String, CHSetting> paimonSettings = {

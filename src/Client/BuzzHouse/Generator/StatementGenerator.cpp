@@ -365,6 +365,15 @@ void StatementGenerator::setClusterClause(
     }
 }
 
+void StatementGenerator::setDatabaseClusterClause(RandomGenerator & rg, const std::shared_ptr<SQLDatabase> & db, Cluster * clu) const
+{
+    /// A `Replicated` or `Shared` database is also a cluster named after it, a pass-through for DDL on its objects
+    if (db && db->isReplicatedOrSharedDatabase() && rg.nextSmallNumber() < 4)
+    {
+        clu->set_cluster(db->getName());
+    }
+}
+
 void StatementGenerator::generateHotTableSettingsValues(RandomGenerator & rg, const bool create, SettingValues * vals)
 {
     std::uniform_int_distribution<size_t> settings_range(1, fc.hot_table_settings.size());
@@ -1756,6 +1765,8 @@ void StatementGenerator::generateNextExchange(RandomGenerator & rg, Exchange * e
     const uint32_t exchange_dictionary = 10 * static_cast<uint32_t>(collectionCount<SQLDictionary>(attached_dictionaries) > 1);
     std::optional<String> cluster1;
     std::optional<String> cluster2;
+    std::shared_ptr<SQLDatabase> db1;
+    std::shared_ptr<SQLDatabase> db2;
 
     rg.pickWeighted(
         {{exchange_table,
@@ -1770,6 +1781,8 @@ void StatementGenerator::generateNextExchange(RandomGenerator & rg, Exchange * e
 
               cluster1 = t1.cluster;
               cluster2 = t2.cluster;
+              db1 = t1.db;
+              db2 = t2.db;
               t1.setName(est1, false);
               t2.setName(est2, false);
           }},
@@ -1785,6 +1798,8 @@ void StatementGenerator::generateNextExchange(RandomGenerator & rg, Exchange * e
 
               cluster1 = v1.cluster;
               cluster2 = v2.cluster;
+              db1 = v1.db;
+              db2 = v2.db;
               v1.setName(est1, false);
               v2.setName(est2, false);
           }},
@@ -1800,6 +1815,8 @@ void StatementGenerator::generateNextExchange(RandomGenerator & rg, Exchange * e
 
               cluster1 = d1.cluster;
               cluster2 = d2.cluster;
+              db1 = d1.db;
+              db2 = d2.db;
               d1.setName(est1, false);
               d2.setName(est2, false);
           }}});
@@ -1807,6 +1824,7 @@ void StatementGenerator::generateNextExchange(RandomGenerator & rg, Exchange * e
     {
         setClusterClause(rg, cluster1, exc->mutable_cluster());
     }
+    setDatabaseClusterClause(rg, db1 == db2 ? db1 : nullptr, exc->mutable_cluster());
     if (rg.nextSmallNumber() < 3)
     {
         generateSettingValues(rg, formatSettings, exc->mutable_setting_values());
@@ -2183,11 +2201,13 @@ std::optional<String> StatementGenerator::alterSingleTable(
              {
                  SettingValues * svs = ati->mutable_table_modify_setting();
                  const auto & engineSettings = allTableSettings.at(t.engine.value);
-                 if (!engineSettings.empty() && rg.nextSmallNumber() < 9)
+                 /// Data lake tables reject any setting not of their own
+                 const bool is_lake = t.isAnyLakeEngine();
+                 if (!engineSettings.empty() && (is_lake || rg.nextSmallNumber() < 9))
                      generateSettingValues(rg, engineSettings, svs);
                  if (is_mt && !fc.hot_table_settings.empty() && rg.nextBool())
                      generateHotTableSettingsValues(rg, false, svs);
-                 if (!svs->has_set_value() || rg.nextSmallNumber() < 4)
+                 if (!svs->has_set_value() || (!is_lake && rg.nextSmallNumber() < 4))
                      generateSettingValues(rg, formatSettings, svs);
              }},
             {5,
@@ -2195,11 +2215,12 @@ std::optional<String> StatementGenerator::alterSingleTable(
              {
                  SettingList * sl = ati->mutable_table_remove_setting();
                  const auto & engineSettings = allTableSettings.at(t.engine.value);
-                 if (!engineSettings.empty() && rg.nextSmallNumber() < 9)
+                 const bool is_lake = t.isAnyLakeEngine();
+                 if (!engineSettings.empty() && (is_lake || rg.nextSmallNumber() < 9))
                      generateSettingList(rg, engineSettings, sl);
                  if (is_mt && !fc.hot_table_settings.empty() && rg.nextBool())
                      generateHotTableSettingList(rg, sl);
-                 if (!sl->has_setting() || rg.nextSmallNumber() < 4)
+                 if (!sl->has_setting() || (!is_lake && rg.nextSmallNumber() < 4))
                      generateSettingList(rg, formatSettings, sl);
              }},
             /// Projections
@@ -2474,7 +2495,8 @@ void StatementGenerator::generateAlter(RandomGenerator & rg, const bool in_paral
           {
               SQLTable & t = rg.pickRandomly(filterCollection<SQLTable>(attached_tables));
 
-              cluster = this->alterSingleTable(rg, t, nalters, true, in_parallel, at);
+              /// Iceberg runs `MODIFY SETTING` and `RESET SETTING` only as the single command of an ALTER
+              cluster = this->alterSingleTable(rg, t, (t.isAnyIcebergEngine() && rg.nextBool()) ? 1 : nalters, true, in_parallel, at);
           }},
          {alter_database,
           [&]
@@ -3441,6 +3463,7 @@ void StatementGenerator::generateNextRename(RandomGenerator & rg, Rename * ren)
     const uint32_t rename_dictionary = 10 * static_cast<uint32_t>(collectionHas<SQLDictionary>(attached_dictionaries));
     const uint32_t rename_database = 10 * static_cast<uint32_t>(has_database);
     std::optional<String> cluster;
+    std::shared_ptr<SQLDatabase> object_db;
 
     rg.pickWeighted(
         {{rename_table,
@@ -3449,6 +3472,7 @@ void StatementGenerator::generateNextRename(RandomGenerator & rg, Rename * ren)
               const SQLTable & t = rg.pickRandomly(filterCollection<SQLTable>(exchange_table_lambda));
 
               cluster = t.getCluster();
+              object_db = t.db;
               ren->set_sobject(SQLObject::TABLE);
               t.setName(oldn->mutable_est(), true);
               SQLTable::setName(newn->mutable_est(), rg.nextIdentifier("t", this->table_counter++, fc.allow_nasty_identifiers), true, t.db);
@@ -3459,6 +3483,7 @@ void StatementGenerator::generateNextRename(RandomGenerator & rg, Rename * ren)
               const SQLView & v = rg.pickRandomly(filterCollection<SQLView>(attached_views));
 
               cluster = v.getCluster();
+              object_db = v.db;
               ren->set_sobject(SQLObject::VIEW);
               v.setName(oldn->mutable_est(), true);
               SQLView::setName(newn->mutable_est(), rg.nextIdentifier("v", this->table_counter++, fc.allow_nasty_identifiers), true, v.db);
@@ -3469,6 +3494,7 @@ void StatementGenerator::generateNextRename(RandomGenerator & rg, Rename * ren)
               const SQLDictionary & d = rg.pickRandomly(filterCollection<SQLDictionary>(attached_dictionaries));
 
               cluster = d.getCluster();
+              object_db = d.db;
               ren->set_sobject(SQLObject::DICTIONARY);
               d.setName(oldn->mutable_est(), true);
               SQLDictionary::setName(
@@ -3501,6 +3527,7 @@ void StatementGenerator::generateNextRename(RandomGenerator & rg, Rename * ren)
         }
     }
     setClusterClause(rg, cluster, ren->mutable_cluster());
+    setDatabaseClusterClause(rg, object_db, ren->mutable_cluster());
     if (rg.nextSmallNumber() < 3)
     {
         generateSettingValues(rg, formatSettings, ren->mutable_setting_values());

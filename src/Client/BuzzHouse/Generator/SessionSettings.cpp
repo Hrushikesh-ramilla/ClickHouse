@@ -861,6 +861,7 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"database_datalake_require_metadata_access", trueOrFalseSettingNoOracle},
     {"database_replicated_allow_explicit_uuid", CHSetting(zeroOneTwo, {}, false)},
     {"database_replicated_allow_heavy_create", trueOrFalseSettingNoOracle},
+    {"database_replicated_allow_only_replicated_engine", trueOrFalseSettingNoOracle},
     {"database_replicated_allow_replicated_engine_arguments",
      CHSetting([](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 3)); }, {}, false)},
     {"database_replicated_always_detach_permanently", trueOrFalseSettingNoOracle},
