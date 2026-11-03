@@ -909,7 +909,7 @@ std::unique_ptr<QueryPipelineBuilder> QueryPipelineBuilder::joinPipelinesRightLe
 
     if (first_arm_totals || second_arm_totals)
     {
-        std::vector<OutputPort *> totals_ports;
+        OutputPortRawPtrs totals_ports;
         auto add_totals = [&](OutputPort * port, const SharedHeader & header, NameToNameMap output_to_input)
         {
             auto transform = std::make_shared<SetOperationTotalsTransform>(header, output_header, std::move(output_to_input));

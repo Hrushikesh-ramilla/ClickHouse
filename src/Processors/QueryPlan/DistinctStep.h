@@ -114,6 +114,7 @@ public:
     /// The input rows are already distinct, so the step only enforces the limit on rows, with the rows it passes as the
     /// set. Without this flag the step deduplicates again and gives the same result, so it is not serialized.
     void skipDeduplication() { skip_deduplication = true; }
+    bool isDeduplicationSkipped() const { return skip_deduplication; }
 
     /// The step deduplicates the output of `EXCEPT DISTINCT` executed as a join. It is needed only when the join stays
     /// LEFT ANTI, which is known after the optimizer has chosen the sides. Not serialized, like `skip_deduplication`.
