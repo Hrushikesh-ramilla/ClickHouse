@@ -2439,8 +2439,8 @@ keeper_settings = {
             0.2, 0.2, 0, 1000 * 1024 * 1024
         ),
         "log_readahead_enabled": true_false_lambda,
-        # NonZeroUInt64. `log_readahead_pool_threads` is left at its 0 (auto) default:
-        # Changelog rejects a non-zero pool smaller than the peer reader count
+        # NonZeroUInt64. A non-zero `log_readahead_pool_threads` below the peer reader
+        # count is raised in `modify_keeper_settings`, Changelog rejects it otherwise
         "log_readahead_eviction_timeout_ms": threshold_generator(
             0.2, 0.2, 1000, 60000, allow_unlimited=False
         ),
@@ -2707,6 +2707,18 @@ def modify_keeper_settings(args, is_private_binary: bool) -> list[str]:
                 or int(write_snapshot_version_xml.text) < min_snapshot_version
             ):
                 write_snapshot_version_xml.text = str(min_snapshot_version)
+
+        # A non-zero `log_readahead_pool_threads` must be >= `log_readahead_max_peer_readers`
+        # (default 8), even with read-ahead disabled, otherwise Keeper refuses to start
+        pool_threads_xml = coordination_settings_xml.find("log_readahead_pool_threads")
+        if pool_threads_xml is not None and int(pool_threads_xml.text) != 0:
+            max_peer_readers = int(
+                coordination_settings_xml.findtext(
+                    "log_readahead_max_peer_readers", "8"
+                )
+            )
+            if int(pool_threads_xml.text) < max_peer_readers:
+                pool_threads_xml.text = str(max_peer_readers)
 
         ET.indent(tree, space="    ", level=0)
         with tempfile.NamedTemporaryFile(
