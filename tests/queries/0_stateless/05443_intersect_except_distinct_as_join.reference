@@ -20,6 +20,9 @@ a	String
 10
 -- The empty probe side stops LEFT ANTI from reading the build side.
 0
+-- A join that spills gives the same result.
+600000
+400000
 -- limits of DISTINCT
 -- The totals of the first branch win.
 

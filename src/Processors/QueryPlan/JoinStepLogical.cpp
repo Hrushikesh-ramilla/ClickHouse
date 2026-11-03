@@ -1998,17 +1998,14 @@ static QueryPlanNode buildPhysicalJoinImpl(
 {
     auto * logical_lookup = typeid_cast<JoinStepLogicalLookup *>(children.back()->step.get());
 
-    /// INNER ANY and RIGHT ANTI of a set operation track per key whether it was emitted, which spilling could lose, and
-    /// the size limits would truncate the result. `Dynamic` keys are hashed the same way as in the set operation.
+    /// The size limits of a join would truncate the result of a set operation. `Dynamic` keys are hashed the same way as
+    /// in the set operation.
     if (join_operator.set_operation != JoinSetOperation::None)
     {
-        join_settings.join_algorithms = {JoinAlgorithm::PARALLEL_HASH};
+        join_settings.join_algorithms = {JoinAlgorithm::HASH};
         join_settings.allow_dynamic_type_in_join_keys = true;
         join_settings.max_rows_in_join = 0;
         join_settings.max_bytes_in_join = 0;
-        join_settings.max_bytes_before_external_join = 0;
-        join_settings.max_bytes_ratio_before_external_join = 0;
-        join_algorithm_params.max_bytes_before_external_join = 0;
     }
 
     auto table_join = std::make_shared<TableJoin>(join_settings, logical_lookup && logical_lookup->useNulls(),

@@ -56,6 +56,13 @@ SELECT '-- The empty probe side stops LEFT ANTI from reading the build side.';
 SELECT count() FROM (SELECT number FROM numbers(0) EXCEPT DISTINCT SELECT number FROM system.numbers)
 SETTINGS max_rows_to_read = 10000000, read_overflow_mode = 'throw', query_plan_join_swap_table = 'false';
 
+SELECT '-- A join that spills gives the same result.';
+-- The left side is a single stream, so the other probe streams are empty while the spilled buckets are joined.
+SELECT count() FROM (SELECT number FROM numbers(1000000) INTERSECT DISTINCT SELECT number FROM numbers(200000, 600000))
+SETTINGS max_bytes_before_external_join = 1000000;
+SELECT count() FROM (SELECT number FROM numbers(1000000) EXCEPT DISTINCT SELECT number FROM numbers(200000, 600000))
+SETTINGS max_bytes_before_external_join = 1000000;
+
 SELECT '-- limits of DISTINCT';
 SELECT count() FROM (SELECT number FROM numbers(10) INTERSECT DISTINCT SELECT number FROM numbers(10))
 SETTINGS max_rows_in_distinct = 3; -- { serverError SET_SIZE_LIMIT_EXCEEDED }

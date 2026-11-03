@@ -89,7 +89,7 @@ InputPort & JoiningTransform::addDelayedBlocksInput()
 IProcessor::Status JoiningTransform::prepare()
 {
     /// Check if we can fully skip reading left side when right side is empty
-    if (build_finished_input && build_finished_input->isFinished() && !probe_empty && !keep_reading_probe && join->alwaysReturnsEmptySet() && !on_totals)
+    if (build_finished_input && build_finished_input->isFinished() && !stream_probe_empty && !keep_reading_probe && join->alwaysReturnsEmptySet() && !on_totals)
         stop_reading = true;
 
     auto & output = outputs.front();
@@ -130,6 +130,8 @@ IProcessor::Status JoiningTransform::prepare()
         /// A set-operation join reads its left side while the right one is filled. INNER and LEFT output nothing for an
         /// empty left side, so a stream whose left side is exhausted closes its port to the right side, and once every
         /// stream has, the right side, which may be unbounded, stops being read. RIGHT ANTI outputs the right rows.
+        /// Whether the build was abandoned is known only when the last stream drains, so until then the stream still
+        /// waits for the spilled buckets, which the other streams may need.
         const auto & table_join = join->getTableJoin();
         if (table_join.setOperation() == JoinSetOperation::None || isRight(table_join.kind()) || keep_reading_build)
             return Status::NeedData;
@@ -137,8 +139,10 @@ IProcessor::Status JoiningTransform::prepare()
         if (!inputs.front().isFinished() || has_input || on_totals)
             return Status::NeedData;
         build_finished_input->close();
-        probe_empty = true;
-        if (delayed_blocks_input)
+        stream_probe_empty = true;
+        if (finish_counter)
+            finish_counter->addEmptyProbeStream();
+        else if (delayed_blocks_input)
             delayed_blocks_input->close();
         delayed_blocks_checked = true;
     }
@@ -161,7 +165,7 @@ IProcessor::Status JoiningTransform::prepare()
             is_drained = true;
             if (match_counter)
                 match_counter->add(matched_right_rows);
-            if (finish_counter->isLast() && !probe_empty)
+            if (finish_counter->isLast() && !finish_counter->allProbeStreamsEmpty())
             {
                 is_last_drained = true;
                 join->onProbePhaseFinish(match_counter ? match_counter->get() : std::optional<size_t>(0));
@@ -171,8 +175,12 @@ IProcessor::Status JoiningTransform::prepare()
         /// There is a big assumption here: if join supports parallel non-joined block processing, then it is
         /// assumed the query pipeline contains the appropriate `NonJoinedBlocksTransform` processors and we can
         /// safely skip processing non-joined blocks depending on `isParallelNonJoinedProcessingEnabled()`.
-        if (process_non_joined && !probe_empty && !(join->supportParallelNonJoinedBlocksProcessing() && join->isParallelNonJoinedProcessingEnabled()))
+        if (process_non_joined && !stream_probe_empty && !(join->supportParallelNonJoinedBlocksProcessing() && join->isParallelNonJoinedProcessingEnabled()))
             return Status::Ready;
+
+        /// When every stream abandoned the build, no spilled buckets will come.
+        if (delayed_blocks_input && finish_counter && finish_counter->allProbeStreamsEmpty())
+            delayed_blocks_input->close();
 
         if (delayed_blocks_input && !delayed_blocks_input->isFinished())
         {
@@ -723,6 +731,7 @@ SetOperationTotalsTransform::SetOperationTotalsTransform(SharedHeader input_head
 
 void SetOperationTotalsTransform::transform(Chunk & chunk)
 {
+    const size_t num_rows = chunk.getNumRows();
     const auto input = getInputPort().getHeader().cloneWithColumns(chunk.detachColumns());
     Columns columns;
     for (const auto & column : getOutputPort().getHeader())
@@ -736,10 +745,10 @@ void SetOperationTotalsTransform::transform(Chunk & chunk)
         }
 
         auto default_column = column.type->createColumn();
-        default_column->insertDefault();
+        default_column->insertManyDefaults(num_rows);
         columns.push_back(std::move(default_column));
     }
-    chunk.setColumns(std::move(columns), 1);
+    chunk.setColumns(std::move(columns), num_rows);
 }
 
 }
