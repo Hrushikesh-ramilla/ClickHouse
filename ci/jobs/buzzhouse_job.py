@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ci.jobs.ast_fuzzer_job import run_fuzz_job
 from ci.jobs.ci_utils import is_extended_run
+from ci.praktika.info import Info
 from ci.praktika.utils import Utils
 
 
@@ -311,8 +312,10 @@ def generate_buzz_config(
         ],
     }
     if random.randint(1, 3) == 1:
-        # Formats to pick more often
-        buzz_config["hot_formats"] = ["Avro", "ORC", "Parquet", "Vortex"]
+        # Formats to pick more often. MSan builds have no Vortex, see `rust/workspace/CMakeLists.txt`
+        buzz_config["hot_formats"] = ["Avro", "ORC", "Parquet"]
+        if "msan" not in Info().job_name:
+            buzz_config["hot_formats"].append("Vortex")
     with open(workspace_path / "fuzz.json", "w") as outfile:
         outfile.write(json.dumps(buzz_config))
 
