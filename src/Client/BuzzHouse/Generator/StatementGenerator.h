@@ -655,6 +655,7 @@ private:
     void generateWindowDefinition(RandomGenerator & rg, WindowDefn * wdef);
     void generateExpression(RandomGenerator & rg, Expr * expr);
     void generateLambdaCall(RandomGenerator & rg, uint32_t nparams, LambdaExpr * lexpr);
+    void generateFuncComposition(RandomGenerator & rg, uint32_t nparams, FuncComposition * comp);
     void generateFuncCall(RandomGenerator & rg, bool allow_funcs, bool allow_aggr, SQLFuncCall * func_call);
     void generateTableFuncCall(RandomGenerator & rg, SQLTableFuncCall * tfunc_call);
     void prepareNextExplain(RandomGenerator & rg, ExplainQuery * eq);

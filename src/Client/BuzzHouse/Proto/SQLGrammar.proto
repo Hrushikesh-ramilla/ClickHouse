@@ -484,11 +484,31 @@ message LambdaExpr {
     required Expr expr = 3;
 }
 
+/// A call with argument placeholders, e.g. `plus(_, 1)` or `minus(_2, _1)`; each argument is printed as is
+message PlaceholderCall {
+    required string func = 1;
+    repeated string args = 2;
+}
+
+message ComposeStage {
+    oneof stage_oneof {
+        LambdaExpr lambda = 1;
+        string func_name = 2;
+        PlaceholderCall call = 3;
+    }
+}
+
+/// The function composition operator `f | g`, valid where a function is expected
+message FuncComposition {
+    repeated ComposeStage stages = 1;
+}
+
 message SQLFuncArg {
     oneof func_arg_oneof {
         LambdaExpr lambda = 1;
         Expr expr = 2;
         string func_name = 3;
+        FuncComposition composition = 4;
     }
 }
 
@@ -2456,6 +2476,15 @@ message UnlockSnapshot {
     optional BackupOut from = 2;
 }
 
+message ResetFileLog {
+    required ExprSchemaTable table = 1;
+    optional string file = 2;
+    oneof position {
+        uint64 offset = 3;
+        bool to_end = 4;
+    }
+}
+
 message SystemCommand {
     reserved 4; // was: reload_models
     optional Cluster cluster = 1;
@@ -2591,6 +2620,7 @@ message SystemCommand {
         string drop_disk_metadata_cache = 128;
         /// Fail points are node-local, so no `ON CLUSTER`
         bool disable_all_failpoints = 129;
+        ResetFileLog reset_filelog = 130;
     }
 }
 

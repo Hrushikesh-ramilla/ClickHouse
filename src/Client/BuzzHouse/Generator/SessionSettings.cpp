@@ -360,6 +360,7 @@ String getNextIcebergExpireTimestamp(RandomGenerator & rg, FuzzConfig & fc)
 std::unordered_map<String, CHSetting> performanceSettings
     = {{"adaptive_aggregator_disable_thaw", trueOrFalseSetting},
        {"allow_aggregate_partitions_independently", trueOrFalseSetting},
+       {"allow_block_nested_loop_join", trueOrFalseSetting},
        {"allow_calculating_subcolumns_sizes_for_merge_tree_reading", trueOrFalseSetting},
        {"allow_creating_set_partitions_independently", trueOrFalseSetting},
        {"allow_distinct_partitions_independently", trueOrFalseSetting},

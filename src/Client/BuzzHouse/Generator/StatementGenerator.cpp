@@ -2749,6 +2749,8 @@ static const auto has_queue_func = [](const SQLTable & t) { return t.isAttached(
 
 static const auto has_time_series_func = [](const SQLTable & t) { return t.isAttached() && t.isTimeSeriesEngine(); };
 
+static const auto has_filelog_func = [](const SQLTable & t) { return t.isAttached() && t.isFileLogEngine(); };
+
 static const auto has_streaming_table_func
     = [](const SQLTable & t) { return t.isAttached() && (t.isAnyQueueEngine() || t.isKafkaEngine()); };
 
@@ -2766,6 +2768,7 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
     const uint32_t has_time_series_table
         = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(has_time_series_func));
     const uint32_t has_streaming_table = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(has_streaming_table_func));
+    const uint32_t has_filelog_table = static_cast<uint32_t>(allow_table_statements && collectionHas<SQLTable>(has_filelog_func));
     /// The background controls accept a streaming table or a refreshable view interchangeably
     const uint32_t has_background_target = has_streaming_table | has_refreshable_view;
     const uint32_t has_replicated_database
@@ -2940,6 +2943,27 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
              const SQLTable & t = rg.pickRandomly(filterCollection<SQLTable>(has_queue_func));
              t.setName(foq->mutable_table(), false);
              foq->set_path(t.getTablePath(rg, this->allow_not_deterministic));
+         }},
+        /// FileLog
+        {3 * has_filelog_table,
+         [&]
+         {
+             ResetFileLog * rfl = sc->mutable_reset_filelog();
+
+             cluster = setTableSystemStatement<SQLTable>(rg, has_filelog_func, rfl->mutable_table());
+             if (rg.nextBool())
+             {
+                 /// `File` tables name their files `t<counter>` or after the table
+                 rfl->set_file("t" + std::to_string(rg.randomInt<uint32_t>(0, 20)));
+                 if (rg.nextBool())
+                 {
+                     rfl->set_offset(rg.nextBool() ? 0 : rg.randomInt<uint64_t>(0, 1000));
+                 }
+                 else if (rg.nextBool())
+                 {
+                     rfl->set_to_end(true);
+                 }
+             }
          }},
         {3 * has_table, [&] { cluster = setTableSystemStatement<SQLTable>(rg, attached_tables, sc->mutable_stop_distributed_sends()); }},
         {3 * has_table, [&] { cluster = setTableSystemStatement<SQLTable>(rg, attached_tables, sc->mutable_start_distributed_sends()); }},

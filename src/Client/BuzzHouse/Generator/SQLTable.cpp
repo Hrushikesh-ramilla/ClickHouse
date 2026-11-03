@@ -299,6 +299,11 @@ StatementGenerator::createTableRelation(RandomGenerator & rg, const bool allow_i
             rel.cols.emplace_back(SQLRelationCol(rel_name, {"_version"}, size_tp.get()));
             rel.cols.emplace_back(SQLRelationCol(rel_name, {"_sign"}, string_tp.get()));
         }
+        else if (t.isFileLogEngine())
+        {
+            rel.cols.emplace_back(SQLRelationCol(rel_name, {"_filename"}, string_tp.get()));
+            rel.cols.emplace_back(SQLRelationCol(rel_name, {"_offset"}, size_tp.get()));
+        }
         else if (t.isKafkaEngine())
         {
             rel.cols.emplace_back(SQLRelationCol(rel_name, {"_topic"}, string_tp.get()));
@@ -1335,6 +1340,11 @@ void StatementGenerator::generateEngineDetails(
         {
             te->add_params()->set_svalue(b.file_comp.value());
         }
+    }
+    else if (te->has_engine() && b.isFileLogEngine())
+    {
+        te->add_params()->set_svalue(b.getTablePath(rg, false));
+        te->add_params()->set_svalue(b.file_format.value());
     }
     else if (te->has_engine() && b.isJoinEngine())
     {
@@ -2599,6 +2609,11 @@ void StatementGenerator::getNextTableEngine(RandomGenerator & rg, bool use_exter
         if ((fc.engine_mask & allow_time_series) != 0)
         {
             this->ids.emplace_back(TimeSeries);
+        }
+        /// Consumes the files, so reads are not repeatable
+        if ((fc.engine_mask & allow_filelog) != 0)
+        {
+            this->ids.emplace_back(FileLog);
         }
         if (fc.allow_infinite_tables && (fc.engine_mask & allow_generaterandom) != 0)
         {

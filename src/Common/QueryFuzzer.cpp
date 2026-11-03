@@ -7291,6 +7291,30 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             }
         }
 
+        /// The function composition operator `f | g`: chain a placeholder call `g(_)` after the function
+        /// argument of a HOF, or drop a stage of an existing chain.
+        if (fn->arguments && !fn->arguments->children.empty() && lambdaAcceptingFuncs().contains(fn->name) && fuzz_rand() % 30 == 0)
+        {
+            auto & first = fn->arguments->children[0];
+            const auto * first_fn = first->as<ASTFunction>();
+            const bool is_compose = first_fn && first_fn->name == "__compose" && first_fn->isOperator() && first_fn->arguments
+                && first_fn->arguments->children.size() == 2;
+
+            if (is_compose && fuzz_rand() % 2 == 0)
+            {
+                ASTPtr stage = first_fn->arguments->children[fuzz_rand() % 2];
+                first = stage;
+            }
+            else if (is_compose || (first_fn && first_fn->name == "lambda") || first->as<ASTIdentifier>())
+            {
+                const auto & group = swapFuncs()[fuzz_rand() % swapFuncs().size()];
+                auto compose = makeASTFunction(
+                    "__compose", first, makeASTFunction(pickRandomly(fuzz_rand, group), make_intrusive<ASTIdentifier>("_")));
+                compose->setIsOperator(true);
+                first = compose;
+            }
+        }
+
         if (fn->isWindowFunction() && fn->window_definition)
         {
             auto & def = fn->window_definition->as<ASTWindowDefinition &>();
@@ -9064,6 +9088,23 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
         {
             static const UInt64 mem_sizes[] = {0, 1, 4096, 1ULL << 20, 1ULL << 30};
             system_query->untracked_memory_size = mem_sizes[fuzz_rand() % std::size(mem_sizes)];
+        }
+        /// Fuzz the position of SYSTEM RESET FILELOG: the whole table, or one file from an offset or its end
+        if (system_query->type == Type::RESET_FILELOG && fuzz_rand() % 5 == 0)
+        {
+            static const UInt64 offsets[] = {0, 1, 100, 1ULL << 20, std::numeric_limits<UInt64>::max()};
+            const String file = system_query->filelog_file.value_or("t" + std::to_string(fuzz_rand() % 20));
+            const UInt64 kind = fuzz_rand() % 4;
+
+            system_query->filelog_file.reset();
+            system_query->filelog_offset.reset();
+            system_query->filelog_to_end = false;
+            if (kind > 0)
+                system_query->filelog_file = file;
+            if (kind == 2)
+                system_query->filelog_offset = offsets[fuzz_rand() % std::size(offsets)];
+            else if (kind == 3)
+                system_query->filelog_to_end = true;
         }
         /// Toggle CLEAR QUERY CACHE between clearing all and clearing by tag
         if (system_query->type == Type::CLEAR_QUERY_CACHE && fuzz_rand() % 5 == 0)

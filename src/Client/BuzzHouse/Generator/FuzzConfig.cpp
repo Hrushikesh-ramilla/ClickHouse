@@ -391,7 +391,8 @@ FuzzConfig::FuzzConfig(DB::ClientBase * c, const String & path)
            {"clusterdatabase", allow_cluster_database},
            {"remotedatabase", allow_remote_database},
            {"overlay", allow_overlay_database},
-           {"timeseries", allow_time_series}};
+           {"timeseries", allow_time_series},
+           {"filelog", allow_filelog}};
 
     const SettingEntries configEntries = {
         {"client_file_path", [&](const JSONObjectType & value) { client_file_path = std::filesystem::path(String(value.getString())); }},

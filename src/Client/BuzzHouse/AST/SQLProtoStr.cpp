@@ -1354,6 +1354,48 @@ CONV_FN(LambdaExpr, lambda)
     ExprToString(ret, lambda.expr());
 }
 
+CONV_FN(FuncComposition, comp)
+{
+    for (int i = 0; i < comp.stages_size(); i++)
+    {
+        const ComposeStage & stage = comp.stages(i);
+
+        if (i != 0)
+        {
+            ret += " | ";
+        }
+        if (stage.has_lambda())
+        {
+            /// Without parentheses the lambda body would take the rest of the chain
+            ret += "(";
+            LambdaExprToString(ret, stage.lambda());
+            ret += ")";
+        }
+        else if (stage.has_call())
+        {
+            ret += stage.call().func();
+            ret += "(";
+            for (int j = 0; j < stage.call().args_size(); j++)
+            {
+                if (j != 0)
+                {
+                    ret += ", ";
+                }
+                ret += stage.call().args(j);
+            }
+            ret += ")";
+        }
+        else if (stage.has_func_name())
+        {
+            ret += stage.func_name();
+        }
+        else
+        {
+            ret += "_";
+        }
+    }
+}
+
 CONV_FN(SQLFuncName, sfn)
 {
     if (sfn.has_catalog_func())
@@ -1410,6 +1452,10 @@ CONV_FN(SQLFuncCall, sfc)
         else if (sfa.has_func_name())
         {
             ret += sfa.func_name();
+        }
+        else if (sfa.has_composition())
+        {
+            FuncCompositionToString(ret, sfa.composition());
         }
         else if (sfa.has_expr())
         {
@@ -2340,6 +2386,10 @@ CONV_FN(SQLTableFuncCall, sfc)
         else if (sfa.has_func_name())
         {
             ret += sfa.func_name();
+        }
+        else if (sfa.has_composition())
+        {
+            FuncCompositionToString(ret, sfa.composition());
         }
         else if (sfa.has_expr())
         {
@@ -5615,6 +5665,25 @@ CONV_FN(SystemCommand, cmd)
                 appendSQLStringLiteral(ret, ddc.server_id());
             }
             can_set_cluster = true;
+            break;
+        }
+        case CmdType::kResetFilelog: {
+            const auto & rfl = cmd.reset_filelog();
+            SystemCommandOnCluster(ret, "RESET FILELOG", cmd, rfl.table());
+            if (rfl.has_file())
+            {
+                ret += " FILE ";
+                appendSQLStringLiteral(ret, rfl.file());
+                if (rfl.has_offset())
+                {
+                    ret += " OFFSET ";
+                    ret += std::to_string(rfl.offset());
+                }
+                else if (rfl.has_to_end())
+                {
+                    ret += " TO END";
+                }
+            }
             break;
         }
         case CmdType::kFlushObjectStorageQueue: {

@@ -837,6 +837,69 @@ void StatementGenerator::generateLambdaCall(RandomGenerator & rg, const uint32_t
     }
 }
 
+/// The function composition operator `f | g`: the first stage takes `nparams` arguments, each next one the result before it
+void StatementGenerator::generateFuncComposition(RandomGenerator & rg, const uint32_t nparams, FuncComposition * comp)
+{
+    const uint32_t nstages = rg.randomInt<uint32_t>(1, 3);
+
+    for (uint32_t i = 0; i < nstages; i++)
+    {
+        const uint32_t arity = i == 0 ? nparams : 1;
+        /// A function name composes only if its number of arguments is fixed
+        const auto name_filter
+            = [arity](const CHFunction & f) { return f.lambda_kind == LambdaKind::None && f.min_args == arity && f.max_args == arity; };
+        const auto call_filter
+            = [arity](const CHFunction & f) { return f.lambda_kind == LambdaKind::None && f.min_args <= arity + 1 && arity <= f.max_args; };
+        ComposeStage * stage = comp->add_stages();
+        const uint32_t nopt = rg.nextSmallNumber();
+
+        if (arity == 1 && nopt < 2)
+        {
+            /// Leave the stage empty for the identity placeholder `_`
+        }
+        else if (nopt < 5 && std::any_of(det_funcs.begin(), det_funcs.end(), name_filter))
+        {
+            std::vector<std::reference_wrapper<const CHFunction>> candidates;
+
+            std::copy_if(det_funcs.begin(), det_funcs.end(), std::back_inserter(candidates), name_filter);
+            stage->set_func_name(rg.pickRandomly(candidates).get().fname);
+        }
+        else if (nopt < 8 && std::any_of(det_funcs.begin(), det_funcs.end(), call_filter))
+        {
+            std::vector<std::reference_wrapper<const CHFunction>> candidates;
+
+            std::copy_if(det_funcs.begin(), det_funcs.end(), std::back_inserter(candidates), call_filter);
+            const CHFunction & func = rg.pickRandomly(candidates).get();
+            PlaceholderCall * call = stage->mutable_call();
+            const bool positional = rg.nextBool();
+            DB::Strings args;
+
+            for (uint32_t j = 1; j <= arity; j++)
+            {
+                args.emplace_back(positional ? ("_" + std::to_string(j)) : "_");
+            }
+            if (positional)
+            {
+                std::shuffle(args.begin(), args.end(), rg.generator);
+            }
+            /// A constant argument next to the placeholders, required when the function takes one more
+            if (func.max_args > arity && (func.min_args > arity || rg.nextBool()))
+            {
+                args.insert(args.begin() + rg.randomInt<uint32_t>(0, arity), std::to_string(rg.randomInt<int32_t>(-10, 10)));
+            }
+            call->set_func(func.fname);
+            for (const auto & arg : args)
+            {
+                call->add_args(arg);
+            }
+        }
+        else
+        {
+            generateLambdaCall(rg, arity, stage->mutable_lambda());
+        }
+    }
+}
+
 void StatementGenerator::generateFuncCall(RandomGenerator & rg, const bool allow_funcs, const bool allow_aggr, SQLFuncCall * func_call)
 {
     const bool nallow_funcs = allow_funcs && (!allow_aggr || rg.nextSmallNumber() < (this->inside_projection ? 3 : 7));
@@ -1071,7 +1134,11 @@ void StatementGenerator::generateFuncCall(RandomGenerator & rg, const bool allow
             const auto arity_filter = [lambda_arity](const CHFunction & f)
             { return f.lambda_kind == LambdaKind::None && f.min_args <= lambda_arity && lambda_arity <= f.max_args; };
 
-            if (rg.nextBool())
+            if (rg.nextSmallNumber() < 3)
+            {
+                generateFuncComposition(rg, lambda_arity, func_call->add_args()->mutable_composition());
+            }
+            else if (rg.nextBool())
             {
                 const auto & source = this->allow_not_deterministic && !nondet_funcs.empty() && rg.nextSmallNumber() < 4
                     ? this->nondet_funcs
