@@ -49,6 +49,14 @@ using PreparedSetsPtr = std::shared_ptr<PreparedSets>;
 class TableJoin
 {
 public:
+    /// The columns of the two arms of a set-operation join, in the same order.
+    struct SetOperationTotals
+    {
+        Names first_arm_columns;
+        Names second_arm_columns;
+        bool first_arm_is_left = true;
+    };
+
     using NameToTypeMap = std::unordered_map<String, DataTypePtr>;
 
     /// Corresponds to one disjunct
@@ -189,6 +197,7 @@ private:
 
     ASTTableJoin table_join;
     std::optional<JoinOperator> join_operator;
+    std::optional<SetOperationTotals> set_operation_totals;
 
     ASOFJoinInequality asof_inequality = ASOFJoinInequality::GreaterOrEquals;
 
@@ -369,6 +378,10 @@ public:
     const ASTTableJoin & getTableJoin() const { return table_join; }
 
     void setJoinOperator(const JoinOperator & join_operator_) { join_operator = join_operator_; }
+    JoinSetOperation setOperation() const { return join_operator ? join_operator->set_operation : JoinSetOperation::None; }
+
+    void setSetOperationTotals(SetOperationTotals value) { set_operation_totals = std::move(value); }
+    const std::optional<SetOperationTotals> & setOperationTotals() const { return set_operation_totals; }
 
     JoinOnClause & getOnlyClause() { assertHasOneOnExpr(); return clauses[0]; }
     const JoinOnClause & getOnlyClause() const { assertHasOneOnExpr(); return clauses[0]; }

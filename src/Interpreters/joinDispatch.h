@@ -48,7 +48,9 @@ template <bool prefer_use_maps_all> struct MapGetterImpl<JoinKind::Full, JoinStr
 template <> struct MapGetterImpl<JoinKind::Left, JoinStrictness::Anti, false>  { using Map = HashJoin::MapsOne; static constexpr bool flagged = false; };
 template <> struct MapGetterImpl<JoinKind::Left, JoinStrictness::Anti, true>  { using Map = HashJoin::MapsAll; static constexpr bool flagged = true; };
 template <bool prefer_use_maps_all> struct MapGetterImpl<JoinKind::Inner, JoinStrictness::Anti, prefer_use_maps_all> { using Map = HashJoin::MapsOne; static constexpr bool flagged = false; };
-template <bool prefer_use_maps_all> struct MapGetterImpl<JoinKind::Right, JoinStrictness::Anti, prefer_use_maps_all> { using Map = HashJoin::MapsAll; static constexpr bool flagged = true; };
+/// RIGHT ANTI gets `MapsOne` only for `EXCEPT DISTINCT`, which emits one row per key.
+template <> struct MapGetterImpl<JoinKind::Right, JoinStrictness::Anti, false> { using Map = HashJoin::MapsOne; static constexpr bool flagged = true; };
+template <> struct MapGetterImpl<JoinKind::Right, JoinStrictness::Anti, true> { using Map = HashJoin::MapsAll; static constexpr bool flagged = true; };
 template <bool prefer_use_maps_all> struct MapGetterImpl<JoinKind::Full, JoinStrictness::Anti, prefer_use_maps_all>  { using Map = HashJoin::MapsOne; static constexpr bool flagged = false; };
 
 template <JoinKind kind, bool prefer_use_maps_all>

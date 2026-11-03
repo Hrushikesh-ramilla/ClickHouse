@@ -644,6 +644,23 @@ std::unique_ptr<QueryPipelineBuilder> QueryPipelineBuilder::joinPipelinesRightLe
 
     left->pipe.collected_processors = collected_processors;
 
+    /// A set operation passes the totals of its arms through instead of joining them: the first arm's ones, or else the
+    /// second arm's ones, as if the arms were united.
+    const auto & set_operation_totals = join->getTableJoin().setOperationTotals();
+    OutputPort * first_arm_totals = nullptr;
+    OutputPort * second_arm_totals = nullptr;
+    SharedHeader first_arm_header;
+    SharedHeader second_arm_header;
+    if (set_operation_totals)
+    {
+        auto & first_arm = set_operation_totals->first_arm_is_left ? left : right;
+        auto & second_arm = set_operation_totals->first_arm_is_left ? right : left;
+        first_arm_header = first_arm->getSharedHeader();
+        second_arm_header = second_arm->getSharedHeader();
+        first_arm_totals = first_arm->pipe.detachTotalsPort();
+        second_arm_totals = second_arm->pipe.detachTotalsPort();
+    }
+
     auto add_to_left_pipe = [&](ProcessorPtr processor)
     {
         if (collected_processors)
@@ -808,6 +825,13 @@ std::unique_ptr<QueryPipelineBuilder> QueryPipelineBuilder::joinPipelinesRightLe
 
         auto joining = std::make_shared<JoiningTransform>(
             left_header, output_header, join, max_block_size, false, default_totals, joining_finish_counter, joining_right_rows_match_counter, emit_non_joined);
+        if (set_operation_totals)
+        {
+            const bool first_arm_is_left = set_operation_totals->first_arm_is_left;
+            joining->keepReadingInputs(
+                (first_arm_is_left ? first_arm_totals : second_arm_totals) != nullptr,
+                (first_arm_is_left ? second_arm_totals : first_arm_totals) != nullptr);
+        }
 
         connect(*left_port, joining->getInputs().front());
         connect(**rit, joining->getInputs().back());
@@ -881,6 +905,48 @@ std::unique_ptr<QueryPipelineBuilder> QueryPipelineBuilder::joinPipelinesRightLe
         ++rit;
 
         add_to_left_pipe(std::move(joining));
+    }
+
+    if (first_arm_totals || second_arm_totals)
+    {
+        std::vector<OutputPort *> totals_ports;
+        auto add_totals = [&](OutputPort * port, const SharedHeader & header, NameToNameMap output_to_input)
+        {
+            auto transform = std::make_shared<SetOperationTotalsTransform>(header, output_header, std::move(output_to_input));
+            connect(*port, transform->getInputPort());
+            totals_ports.push_back(&transform->getOutputPort());
+            add_to_left_pipe(std::move(transform));
+        };
+
+        NameToNameMap output_to_first_arm;
+        NameToNameMap output_to_second_arm;
+        for (size_t i = 0; i < set_operation_totals->first_arm_columns.size(); ++i)
+        {
+            output_to_first_arm[set_operation_totals->first_arm_columns[i]] = set_operation_totals->first_arm_columns[i];
+            output_to_second_arm[set_operation_totals->first_arm_columns[i]] = set_operation_totals->second_arm_columns[i];
+        }
+
+        if (first_arm_totals)
+            add_totals(first_arm_totals, first_arm_header, std::move(output_to_first_arm));
+        if (second_arm_totals)
+            add_totals(second_arm_totals, second_arm_header, std::move(output_to_second_arm));
+
+        if (totals_ports.size() == 1)
+        {
+            left->pipe.totals_port = totals_ports.front();
+        }
+        else
+        {
+            auto concat = std::make_shared<ConcatProcessor>(output_header, totals_ports.size());
+            auto limit = std::make_shared<LimitTransform>(output_header, 1, 0);
+            auto concat_input = concat->getInputs().begin();
+            for (auto * port : totals_ports)
+                connect(*port, *concat_input++);
+            connect(concat->getOutputs().front(), limit->getInputPort());
+            left->pipe.totals_port = &limit->getOutputPort();
+            add_to_left_pipe(std::move(concat));
+            add_to_left_pipe(std::move(limit));
+        }
     }
 
     assignToJoinStage(collected_processors, join_step, JoinStep::JoinStage::Probe);

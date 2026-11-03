@@ -339,6 +339,8 @@ std::vector<std::pair<String, String>> JoinStepLogical::describeJoinProperties()
 
     description.emplace_back("Type", toString(join_operator.kind));
     description.emplace_back("Strictness", toString(join_operator.strictness));
+    if (join_operator.set_operation != JoinSetOperation::None)
+        description.emplace_back("Set operation", String(toString(join_operator.set_operation)));
     description.emplace_back("Locality", toString(join_operator.locality));
     description.emplace_back("Expression", formatJoinCondition(join_operator.expression));
     return description;
@@ -1996,6 +1998,19 @@ static QueryPlanNode buildPhysicalJoinImpl(
 {
     auto * logical_lookup = typeid_cast<JoinStepLogicalLookup *>(children.back()->step.get());
 
+    /// INNER ANY and RIGHT ANTI of a set operation track per key whether it was emitted, which spilling could lose, and
+    /// the size limits would truncate the result. `Dynamic` keys are hashed the same way as in the set operation.
+    if (join_operator.set_operation != JoinSetOperation::None)
+    {
+        join_settings.join_algorithms = {JoinAlgorithm::PARALLEL_HASH};
+        join_settings.allow_dynamic_type_in_join_keys = true;
+        join_settings.max_rows_in_join = 0;
+        join_settings.max_bytes_in_join = 0;
+        join_settings.max_bytes_before_external_join = 0;
+        join_settings.max_bytes_ratio_before_external_join = 0;
+        join_algorithm_params.max_bytes_before_external_join = 0;
+    }
+
     auto table_join = std::make_shared<TableJoin>(join_settings, logical_lookup && logical_lookup->useNulls(),
         Context::getGlobalContextInstance()->getGlobalTemporaryVolume(),
         Context::getGlobalContextInstance()->getTempDataOnDisk());
@@ -2398,8 +2413,12 @@ static QueryPlanNode buildPhysicalJoinImpl(
         }
     }
 
-    for (const auto * child : children)
+    /// A set-operation join keeps every column of both inputs, also a column used only through a key computed from it.
+    const bool is_set_operation = join_operator.set_operation != JoinSetOperation::None;
+    std::vector<Names> child_input_names(children.size());
+    for (size_t child_index = 0; child_index < children.size(); ++child_index)
     {
+        const auto * child = children[child_index];
         for (const auto & column : *child->step->getOutputHeader())
         {
             auto input_it = name_to_nodes.find(column.name);
@@ -2413,9 +2432,21 @@ static QueryPlanNode buildPhysicalJoinImpl(
 
             const auto * input = input_it->second.front();
             input_it->second.pop_front();
-            if (!consumed_inputs.contains(input))
+            child_input_names[child_index].push_back(input->result_name);
+            if (is_set_operation || !consumed_inputs.contains(input))
                 used_expressions.emplace_back(input, expression_actions);
         }
+    }
+
+    /// A set-operation join outputs the columns of its first branch, which the optimizer may have put on either side.
+    if (is_set_operation)
+    {
+        const bool first_arm_is_left = JoinActionRef(actions_after_join.front(), expression_actions).fromLeft();
+        table_join->setSetOperationTotals({
+            .first_arm_columns = child_input_names[first_arm_is_left ? 0 : 1],
+            .second_arm_columns = child_input_names[first_arm_is_left ? 1 : 0],
+            .first_arm_is_left = first_arm_is_left,
+        });
     }
 
     {
@@ -2935,7 +2966,7 @@ void JoinStepLogical::serialize(Serialization & ctx) const
     auto actions_dag = expression_actions.getActionsDAG();
     actions_dag->serialize(ctx.out, ctx.registry);
 
-    join_operator.serialize(ctx.out, actions_dag.get());
+    join_operator.serialize(ctx.out, actions_dag.get(), ctx.step_version);
     serializeNodeList(ctx.out, actions_dag->getNodeToIdMap(), actions_after_join);
 
     /// A step that crosses the wire tells the receiver which decisions were already taken on it, so
@@ -2999,7 +3030,7 @@ QueryPlanStepPtr JoinStepLogical::deserialize(Deserialization & ctx)
     auto right_header = ctx.input_headers.back();
     JoinExpressionActions expression_actions(*left_header, *right_header, std::move(actions_dag));
 
-    auto join_operator = JoinOperator::deserialize(ctx.in, expression_actions);
+    auto join_operator = JoinOperator::deserialize(ctx.in, expression_actions, ctx.step_version);
     auto actions_after_join = deserializeNodeList(ctx.in, id_to_node);
 
     SortingStep::Settings sort_settings(ctx.settings);
@@ -3105,7 +3136,9 @@ void registerJoinStep(QueryPlanStepRegistry & registry);
 
 void registerJoinStep(QueryPlanStepRegistry & registry)
 {
-    registry.registerStep("Join", JoinStepLogical::deserialize);
+    /// Version 1 adds the set operation of the join.
+    const QueryPlanStepRegistry::StepVersions versions{{0, 0}, {1, DBMS_MIN_QUERY_PLAN_SERIALIZATION_VERSION_WITH_SET_OPERATION_AS_JOIN}};
+    registry.registerStep("Join", JoinStepLogical::deserialize, versions);
 }
 
 

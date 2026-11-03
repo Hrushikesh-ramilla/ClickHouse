@@ -739,9 +739,14 @@ void HashJoin::dataMapInit(MapsVariant & map)
 
 bool HashJoin::preferUseMapsAll() const
 {
+    /// RIGHT ANTI emits every row of an unmatched key, except for `EXCEPT DISTINCT`, which emits one.
+    const bool right_anti_emits_all_rows = kind == JoinKind::Right && strictness == JoinStrictness::Anti
+        && table_join->setOperation() != JoinSetOperation::ExceptDistinct;
+
     return all_join_was_promoted_to_right_any // It means that we built hash tables for ALL strictness, but upon finishing found out that we can switch to RIGHT ANY.
                                               // In this case we still have to use ALL maps.
-        || table_join->getMixedJoinExpression() != nullptr;
+        || table_join->getMixedJoinExpression() != nullptr
+        || right_anti_emits_all_rows;
 }
 
 /// A set map answers whether a key is present and nothing else, so it fits exactly those joins whose
