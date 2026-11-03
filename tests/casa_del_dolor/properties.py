@@ -1302,9 +1302,10 @@ def add_single_disk(
             }
             if storage_properties:
                 apply_properties_recursively(next_disk, storage_properties)
+        # Only the Keeper metadata storage reads this, `s3_with_keeper` may have another metadata type
         if (
             is_private_binary
-            and (object_storage_type == "s3_with_keeper" or metadata_type == "keeper")
+            and metadata_type == "keeper"
             and random.randint(1, 100) <= 70
         ):
             metadata_xml = ET.SubElement(next_disk, "metadata_background_cleanup")
@@ -2209,8 +2210,8 @@ distributed_cache_server_properties = {
     "socket_receive_timeout_sec": threshold_generator(0.2, 0.2, 1, 300),
     "socket_send_timeout_sec": threshold_generator(0.2, 0.2, 1, 300),
     "stats_log_interval_sec": threshold_generator(0.2, 0.2, 0, 60),
-    # 0 derives it from the disk size
-    "weight": lambda: random.choice([0, 0.5, 1, 4]),
+    # Must be positive when set, left unset it is derived from the disk size
+    "weight": lambda: random.choice([0.5, 1, 4]),
 }
 
 distributed_cache_client_properties = {
@@ -2285,6 +2286,12 @@ def generate_distributed_cache_config(args, node: int) -> tuple[str, int]:
     ET.SubElement(client_xml, "client_id").text = f"dolor_node{node}"
     if random.randint(1, 100) <= 70:
         apply_properties_recursively(client_xml, distributed_cache_client_properties)
+    # `RegistrySettings::validate` rejects a total pool smaller than the per-server one (default 10000)
+    pool_size = client_xml.find("connection_pool_size")
+    per_server = client_xml.find("connection_pool_size_per_server")
+    per_server_value = int(per_server.text) if per_server is not None else 10000
+    if pool_size is not None and int(pool_size.text) < per_server_value:
+        pool_size.text = str(per_server_value)
 
     # Object storage disks use the cache unless their `enable_distributed_cache` is 0
     for setting in (
