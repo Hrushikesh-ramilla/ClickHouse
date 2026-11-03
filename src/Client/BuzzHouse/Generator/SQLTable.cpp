@@ -3292,43 +3292,46 @@ void StatementGenerator::generateNextCreateDictionary(RandomGenerator & rg, Crea
     setClusterClause(rg, next.cluster, cd->mutable_cluster());
 
     layout->set_layout(dl);
-    /*
-    /// Layout properties
-    /// Don't set random dictionary properties that can overhelm the server
+    const auto add_layout_setting = [&](const String & property, const String & value)
+    {
+        svs = svs ? svs : layout->mutable_setting_values();
+        SetValue * sv = svs->has_set_value() ? svs->add_other_values() : svs->mutable_set_value();
+
+        sv->set_property(property);
+        sv->set_value(value);
+    };
+    /// Layout properties, the generators are bounded so they don't overwhelm the server
     const auto & layoutSettings = allDictionaryLayoutSettings.at(dl);
     if (!layoutSettings.empty() && rg.nextSmallNumber() < 5)
     {
         svs = svs ? svs : layout->mutable_setting_values();
         generateSettingValues(rg, layoutSettings, svs);
-    }*/
+    }
     if (dl == COMPLEX_KEY_SSD_CACHE || dl == SSD_CACHE)
     {
-        /// needs path
-        svs = layout->mutable_setting_values();
-        SetValue * sv = svs->mutable_set_value();
+        /// The default 4 GiB file is preallocated per partition and its partitions never fill. Use a small file, so
+        /// adding and reusing partitions runs. The sizes are multiples of the block size, and the write buffer fits in the file.
+        const uint32_t block_size = rg.nextBool() ? 4096 : 8192;
+        const uint32_t file_blocks = rg.randomInt<uint32_t>(1, 64);
         const String ncache = "cache" + std::to_string(this->cache_counter++);
         const std::filesystem::path & nfile = fc.server_file_path / ncache;
 
-        sv->set_property("PATH");
-        sv->set_value("'" + nfile.generic_string() + "'");
+        add_layout_setting("PATH", "'" + nfile.generic_string() + "'");
+        add_layout_setting("BLOCK_SIZE", std::to_string(block_size));
+        add_layout_setting("FILE_SIZE", std::to_string(file_blocks * block_size));
+        add_layout_setting("READ_BUFFER_SIZE", std::to_string(rg.randomInt<uint32_t>(1, 16) * block_size));
+        add_layout_setting("WRITE_BUFFER_SIZE", std::to_string(rg.randomInt<uint32_t>(1, std::min<uint32_t>(file_blocks, 4)) * block_size));
+        add_layout_setting("MAX_PARTITIONS_COUNT", std::to_string(rg.randomInt<uint32_t>(1, 8)));
     }
     else if (dl == COMPLEX_KEY_CACHE || dl == CACHE)
     {
         /// needs size_in_cells
-        svs = svs ? svs : layout->mutable_setting_values();
-        SetValue * sv = svs->has_set_value() ? svs->add_other_values() : svs->mutable_set_value();
-
-        sv->set_property("SIZE_IN_CELLS");
-        sv->set_value(std::to_string(rg.randomInt<uint64_t>(0, UINT32_C(10) * UINT32_C(1024) * UINT32_C(1024))));
+        add_layout_setting("SIZE_IN_CELLS", std::to_string(rg.randomInt<uint64_t>(0, UINT32_C(10) * UINT32_C(1024) * UINT32_C(1024))));
     }
     else if (is_polygon)
     {
         /// SELECT * from a polygon dictionary is UNSUPPORTED_METHOD without this
-        svs = svs ? svs : layout->mutable_setting_values();
-        SetValue * sv = svs->has_set_value() ? svs->add_other_values() : svs->mutable_set_value();
-
-        sv->set_property("STORE_POLYGON_KEY_COLUMN");
-        sv->set_value("1");
+        add_layout_setting("STORE_POLYGON_KEY_COLUMN", "1");
     }
 
     /// Add Primary Key

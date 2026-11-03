@@ -267,19 +267,21 @@ StatementGenerator::StatementGenerator(
     {
         likeEngsInfinite.emplace_back(GenerateRandom);
     }
+    /// Number of arguments after the dictionary name, and the attribute name if the function takes one
     dictFuncs = {
         {"dictGet", 1},
         {"dictGetAll", 1},
-        {"dictGetChildren", 0},
-        {"dictGetDescendants", 1},
-        {"dictGetHierarchy", 0},
+        {"dictGetChildren", 1},
+        {"dictGetDescendants", 2},
+        {"dictGetHierarchy", 1},
         {"dictGetInt32", 1},
         {"dictGetInt32OrDefault", 2},
         {"dictGetKeys", 1},
         {"dictGetOrDefault", 2},
         {"dictGetOrNull", 1},
-        {"dictHas", 0},
-        {"dictIsIn", 1},
+        {"dictGetRoot", 1},
+        {"dictHas", 1},
+        {"dictIsIn", 2},
     };
     if ((fc.type_mask & allow_int8))
     {
@@ -2760,8 +2762,8 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
     };
 
     rg.pickWeighted({
-        {0, [&] { sc->set_reload_embedded_dictionaries(true); }},
-        {0, [&] { sc->set_reload_dictionaries(true); }},
+        {1, [&] { sc->set_reload_embedded_dictionaries(true); }},
+        {1, [&] { sc->set_reload_dictionaries(true); }},
         {3, [&] { sc->set_reload_functions(true); }},
         {1 * static_cast<uint32_t>(!functions.empty()),
          [&]

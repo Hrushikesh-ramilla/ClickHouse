@@ -1553,17 +1553,61 @@ void StatementGenerator::generateExpression(RandomGenerator & rg, Expr * expr)
 
             sfc->mutable_func()->set_catalog_func(dfunc);
             sfc->add_args()->mutable_expr()->mutable_lit_val()->set_no_quote_str("'" + d.getFullName(true) + "'");
-            flatTableColumnPath(
-                flat_tuple | flat_nested | flat_json | to_table_entries | collect_generated,
-                d.cols,
-                [](const SQLColumn &) { return true; });
-            sfc->add_args()->mutable_expr()->mutable_lit_val()->set_no_quote_str(rg.pickRandomly(this->table_entries).columnPathRef("'"));
-            this->table_entries.clear();
+            /// `dictHas` and the hierarchy functions take a key, not an attribute name
+            static const std::unordered_set<String> key_only_funcs
+                = {"dictGetChildren", "dictGetDescendants", "dictGetHierarchy", "dictGetRoot", "dictHas", "dictIsIn"};
+            /// These also take a tuple of attribute names and return a tuple
+            static const std::unordered_set<String> multi_attribute_funcs = {"dictGet", "dictGetAll", "dictGetOrDefault", "dictGetOrNull"};
+            size_t nattributes = 1;
+            if (!key_only_funcs.contains(dfunc))
+            {
+                flatTableColumnPath(
+                    flat_tuple | flat_nested | flat_json | to_table_entries | collect_generated,
+                    d.cols,
+                    [](const SQLColumn &) { return true; });
+                if (multi_attribute_funcs.contains(dfunc) && this->table_entries.size() > 1 && rg.nextSmallNumber() < 4)
+                {
+                    String names = "(";
+
+                    nattributes = rg.randomInt<size_t>(2, std::min<size_t>(this->table_entries.size(), 4));
+                    std::shuffle(this->table_entries.begin(), this->table_entries.end(), rg.generator);
+                    for (size_t i = 0; i < nattributes; i++)
+                    {
+                        names += (i == 0 ? "" : ", ") + this->table_entries[i].columnPathRef("'");
+                    }
+                    sfc->add_args()->mutable_expr()->mutable_lit_val()->set_no_quote_str(names + ")");
+                }
+                else
+                {
+                    sfc->add_args()->mutable_expr()->mutable_lit_val()->set_no_quote_str(
+                        rg.pickRandomly(this->table_entries).columnPathRef("'"));
+                }
+                this->table_entries.clear();
+            }
             this->depth++;
             /// May break total width
             for (uint32_t i = 0; i < dictFuncs.at(dfunc); i++)
             {
-                this->generateExpression(rg, sfc->add_args()->mutable_expr());
+                if (dfunc == "dictGetOrDefault" && i == 1 && nattributes > 1)
+                {
+                    /// One default per attribute
+                    SQLFuncCall * defaults = sfc->add_args()->mutable_expr()->mutable_comp_expr()->mutable_func_call();
+
+                    defaults->mutable_func()->set_catalog_func("tuple");
+                    for (size_t j = 0; j < nattributes; j++)
+                    {
+                        this->generateExpression(rg, defaults->add_args()->mutable_expr());
+                    }
+                }
+                else
+                {
+                    this->generateExpression(rg, sfc->add_args()->mutable_expr());
+                }
+            }
+            if (dfunc == "dictGetAll" && rg.nextBool())
+            {
+                /// Optional limit of each returned array
+                sfc->add_args()->mutable_expr()->mutable_lit_val()->set_no_quote_str(std::to_string(rg.randomInt<uint32_t>(0, 10)));
             }
             this->depth--;
         }

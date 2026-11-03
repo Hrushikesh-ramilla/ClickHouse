@@ -840,56 +840,64 @@ std::unordered_map<String, CHSetting> refreshSettings
        {"refresh_retry_initial_backoff_ms", highRangeSetting},
        {"refresh_retry_max_backoff_ms", highRangeSetting}};
 
+/// Layout setting generators stay within the ranges the server accepts, and small enough not to overwhelm it
+static const auto flatArraySizeSetting = CHSetting(
+    [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, UINT32_C(1000000))); },
+    {},
+    false);
+
 static std::unordered_map<String, CHSetting> flatLayoutSettings
-    = {{"INITIAL_ARRAY_SIZE", CHSetting(bytesRange, {}, false)}, {"MAX_ARRAY_SIZE", CHSetting(bytesRange, {}, false)}};
+    = {{"INITIAL_ARRAY_SIZE", flatArraySizeSetting}, {"MAX_ARRAY_SIZE", flatArraySizeSetting}};
+
+static const auto shardLoadQueueBacklogSetting = CHSetting(
+    [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 1, UINT32_C(100000))); },
+    {},
+    false);
+
+static const auto shardsSetting
+    = CHSetting([](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(1, 16)); }, {}, false);
 
 static std::unordered_map<String, CHSetting> hashedLayoutSettings
     = {{"MAX_LOAD_FACTOR", CHSetting([](RandomGenerator & rg, FuzzConfig &) { return rg.nextBool() ? "0.5" : "0.99"; }, {}, false)},
-       {"SHARD_LOAD_QUEUE_BACKLOG",
-        CHSetting(
-            [](RandomGenerator & rg, FuzzConfig &)
-            {
-                return std::to_string(
-                    rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, UINT32_C(10) * UINT32_C(1024) * UINT32_C(1024) * UINT32_C(1024)));
-            },
-            {},
-            false)},
-       {"SHARDS", CHSetting([](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 10)); }, {}, false)}};
+       /// Obsolete, only logs a warning
+       {"PREALLOCATE", trueOrFalseSettingNoOracle},
+       {"SHARD_LOAD_QUEUE_BACKLOG", shardLoadQueueBacklogSetting},
+       {"SHARDS", shardsSetting}};
 
 static std::unordered_map<String, CHSetting> hashedArrayLayoutSettings
-    = {{"SHARDS", CHSetting([](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 10)); }, {}, false)}};
+    = {{"SHARD_LOAD_QUEUE_BACKLOG", shardLoadQueueBacklogSetting}, {"SHARDS", shardsSetting}};
 
 static std::unordered_map<String, CHSetting> rangeHashedLayoutSettings = {
+    {"CONVERT_NULL_RANGE_BOUND_TO_OPEN", trueOrFalseSettingNoOracle},
     {"RANGE_LOOKUP_STRATEGY", CHSetting([](RandomGenerator & rg, FuzzConfig &) { return rg.nextBool() ? "'min'" : "'max'"; }, {}, false)}};
 
-static std::unordered_map<String, CHSetting> cachedLayoutSettings
-    = {{"ALLOW_READ_EXPIRED_KEYS", trueOrFalseSettingNoOracle},
-       {"MAX_THREADS_FOR_UPDATES", threadSetting},
-       {"MAX_UPDATE_QUEUE_SIZE",
-        CHSetting(
-            [](RandomGenerator & rg, FuzzConfig &)
-            {
-                return std::to_string(
-                    rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, UINT32_C(10) * UINT32_C(1024) * UINT32_C(1024) * UINT32_C(1024)));
-            },
-            {},
-            false)},
-       {"QUERY_WAIT_TIMEOUT_MILLISECONDS", CHSetting(highRange, {}, false)},
-       {"STRICT_MAX_LIFETIME_SECONDS", CHSetting(highRange, {}, false)},
-       {"UPDATE_QUEUE_PUSH_TIMEOUT_MILLISECONDS", CHSetting(highRange, {}, false)}};
-
-static std::unordered_map<String, CHSetting> ssdCachedLayoutSettings
-    = {{"BLOCK_SIZE", CHSetting(bytesRange, {}, false)},
-       {"FILE_SIZE", CHSetting(bytesRange, {}, false)},
-       {"READ_BUFFER_SIZE", CHSetting(bytesRange, {}, false)},
-       {"STRICT_MAX_LIFETIME_SECONDS", CHSetting(highRange, {}, false)},
-       {"WRITE_BUFFER_SIZE", CHSetting(bytesRange, {}, false)}};
+/// Also used by SSD cache layouts, whose storage settings are generated together in `generateNextCreateDictionary`
+static std::unordered_map<String, CHSetting> cachedLayoutSettings = {
+    {"ALLOW_READ_EXPIRED_KEYS", trueOrFalseSettingNoOracle},
+    {"MAX_THREADS_FOR_UPDATES",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         { return std::to_string(rg.randomInt<uint32_t>(1, std::max<uint32_t>(1, std::thread::hardware_concurrency()))); },
+         {},
+         false)},
+    {"MAX_UPDATE_QUEUE_SIZE",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 1, UINT32_C(100000))); },
+         {},
+         false)},
+    {"QUERY_WAIT_TIMEOUT_MILLISECONDS",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, UINT32_C(60000))); },
+         {},
+         false)},
+    {"STRICT_MAX_LIFETIME_SECONDS", CHSetting(highRange, {}, false)},
+    {"UPDATE_QUEUE_PUSH_TIMEOUT_MILLISECONDS",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 10, UINT32_C(10000))); },
+         {},
+         false)}};
 
 static std::unordered_map<String, CHSetting> ipTreeLayoutSettings = {{"ACCESS_TO_KEY_FROM_ATTRIBUTES", trueOrFalseSettingNoOracle}};
-
-static std::unordered_map<String, CHSetting> regexpTreeLayoutSettings = {{"require_nonempty", trueOrFalseSettingNoOracle}};
-
-static std::unordered_map<String, CHSetting> polygonLayoutSettings = {{"STORE_POLYGON_KEY_COLUMN", trueOrFalseSettingNoOracle}};
 
 static std::unordered_map<String, CHSetting> dataLakeSettings;
 
@@ -1473,7 +1481,6 @@ void loadFuzzerTableSettings(const FuzzConfig & fc)
         hashedArrayLayoutSettings.erase(entry);
         rangeHashedLayoutSettings.erase(entry);
         cachedLayoutSettings.erase(entry);
-        ssdCachedLayoutSettings.erase(entry);
         dataLakeSettings.erase(entry);
         icebergTableOnlySettings.erase(entry);
         paimonSettings.erase(entry);
@@ -1638,20 +1645,20 @@ void loadFuzzerTableSettings(const FuzzConfig & fc)
          {COMPLEX_KEY_HASHED_ARRAY, hashedArrayLayoutSettings},
          {COMPLEX_KEY_RANGE_HASHED, rangeHashedLayoutSettings},
          {COMPLEX_KEY_SPARSE_HASHED, hashedLayoutSettings},
-         {COMPLEX_KEY_SSD_CACHE, ssdCachedLayoutSettings},
+         {COMPLEX_KEY_SSD_CACHE, cachedLayoutSettings},
          {DIRECT, {}},
          {FLAT, flatLayoutSettings},
          {HASHED, hashedLayoutSettings},
          {HASHED_ARRAY, hashedArrayLayoutSettings},
          {IP_TRIE, ipTreeLayoutSettings},
          {RANGE_HASHED, rangeHashedLayoutSettings},
-         {REGEXP_TREE, regexpTreeLayoutSettings},
+         {REGEXP_TREE, {}},
          {SPARSE_HASHED, hashedLayoutSettings},
-         {SSD_CACHE, ssdCachedLayoutSettings},
-         {POLYGON, polygonLayoutSettings},
-         {POLYGON_SIMPLE, polygonLayoutSettings},
-         {POLYGON_INDEX_EACH, polygonLayoutSettings},
-         {POLYGON_INDEX_CELL, polygonLayoutSettings}});
+         {SSD_CACHE, cachedLayoutSettings},
+         {POLYGON, {}},
+         {POLYGON_SIMPLE, {}},
+         {POLYGON_INDEX_EACH, {}},
+         {POLYGON_INDEX_CELL, {}}});
 
     for (const auto & entry : fc.hot_table_settings)
     {
