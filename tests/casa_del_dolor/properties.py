@@ -2269,6 +2269,10 @@ def generate_distributed_cache_config(args, node: int) -> tuple[str, int]:
         ET.SubElement(cache_xml, "check_cache_probability").text = "0"
         if random.randint(1, 100) <= 70:
             apply_properties_recursively(cache_xml, cache_storage_properties)
+        # `DistributedCacheServerInstance` rejects a set `cache_policy` other than the overcommit ones
+        cache_policy = cache_xml.find("cache_policy")
+        if cache_policy is not None and cache_policy.text in ("LRU", "SLRU"):
+            cache_policy.text = f"{cache_policy.text}_OVERCOMMIT"
         normalize_cache_properties(cache_xml)
         if random.randint(1, 100) <= 70:
             apply_properties_recursively(
