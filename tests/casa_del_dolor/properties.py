@@ -2876,9 +2876,9 @@ keeper_settings = {
         ),
         "snapshot_distance": threshold_generator(0.2, 0.2, 0, 100000),
         "snapshot_transfer_chunk_size": threshold_generator(
-            0.2, 0.2, 0, 16 * 1024 * 1024
+            0.2, 0.2, 0, 16 * 1024 * 1024, allow_unlimited=False
         ),
-        # Used with a nonzero `snapshot_transfer_chunk_size`
+        # Needs a nonzero `snapshot_transfer_chunk_size`, `modify_keeper_settings` ensures it
         "snapshot_transfer_remote_disk_streaming": true_false_lambda,
         # Used with `compress_snapshots_with_zstd_format`; negative levels are the fast ones
         "snapshot_zstd_compression_level": lambda: random.choice(
@@ -3067,6 +3067,17 @@ def modify_keeper_settings(args, is_private_binary: bool) -> list[str]:
             )
             if int(pool_threads_xml.text) < max_peer_readers:
                 pool_threads_xml.text = str(max_peer_readers)
+
+        # `snapshot_transfer_remote_disk_streaming` requires a nonzero `snapshot_transfer_chunk_size`
+        # (default 0), otherwise Keeper refuses to start. A chunk size is drawn so streaming stays covered.
+        if coordination_settings_xml.findtext("snapshot_transfer_remote_disk_streaming") in ("1", "true"):
+            chunk_size_xml = coordination_settings_xml.find("snapshot_transfer_chunk_size")
+            if chunk_size_xml is None:
+                chunk_size_xml = ET.SubElement(
+                    coordination_settings_xml, "snapshot_transfer_chunk_size"
+                )
+            if int(chunk_size_xml.text or "0") == 0:
+                chunk_size_xml.text = str(random.randint(1, 16 * 1024 * 1024))
 
         ET.indent(tree, space="    ", level=0)
         with tempfile.NamedTemporaryFile(
