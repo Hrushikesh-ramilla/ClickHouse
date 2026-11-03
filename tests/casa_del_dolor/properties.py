@@ -123,14 +123,15 @@ zookeeper_client_properties = {
     "num_connection_retries": lambda: random.randint(1, 5),
     "pass_opentelemetry_tracing_context": true_false_lambda,
     # Fault injection after startup only, `enable_fault_injections_during_startup` stays off
-    #"recv_fault_probability": threshold_generator(0.6, 0.0, 0.0, 0.01),
-    #"recv_sleep_ms": threshold_generator(0.2, 0.2, 0, 200, allow_unlimited=False),
-    #"recv_sleep_probability": threshold_generator(0.6, 0.0, 0.0, 0.05),
-    #"send_fault_probability": threshold_generator(0.6, 0.0, 0.0, 0.01),
-    #"send_sleep_ms": threshold_generator(0.2, 0.2, 0, 200, allow_unlimited=False),
-    #"send_sleep_probability": threshold_generator(0.6, 0.0, 0.0, 0.05),
+    # "recv_fault_probability": threshold_generator(0.6, 0.0, 0.0, 0.01),
+    # "recv_sleep_ms": threshold_generator(0.2, 0.2, 0, 200, allow_unlimited=False),
+    # "recv_sleep_probability": threshold_generator(0.6, 0.0, 0.0, 0.05),
+    # "send_fault_probability": threshold_generator(0.6, 0.0, 0.0, 0.01),
+    # "send_sleep_ms": threshold_generator(0.2, 0.2, 0, 200, allow_unlimited=False),
+    # "send_sleep_probability": threshold_generator(0.6, 0.0, 0.0, 0.05),
     "use_compression": true_false_lambda,
-    "use_xid_64": true_false_lambda,
+    # Not `use_xid_64`: Keeper rejects the handshake of such a client unless its own
+    # `coordination_settings.use_xid_64` is on, which is off by default and drawn per Keeper node
     "zookeeper_load_balancing": lambda: random.choice(
         [
             "random",
