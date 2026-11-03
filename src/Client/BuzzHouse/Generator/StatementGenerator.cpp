@@ -1670,6 +1670,14 @@ void StatementGenerator::generateNextUpdate(RandomGenerator & rg, const SQLTable
     if (rg.nextBool())
     {
         generateNextTablePartition(rg, 0, rg.nextSmallNumber() < 3, false, t, upt->mutable_single_partition()->mutable_partition());
+        /// `IN PARTITION p1, p2, ...`
+        if (rg.nextSmallNumber() < 3)
+        {
+            const uint32_t nparts = rg.randomInt<uint32_t>(1, 3);
+
+            for (uint32_t i = 0; i < nparts; i++)
+                generateNextTablePartition(rg, 0, rg.nextSmallNumber() < 3, false, t, upt->add_other_partitions());
+        }
     }
     generateUpdateSets(rg, t, upt->mutable_update(), [&]() { return upt->add_other_updates(); });
     generateUptDelWhere(rg, t, upt->mutable_where()->mutable_expr()->mutable_expr());
@@ -1680,6 +1688,14 @@ void StatementGenerator::generateNextDelete(RandomGenerator & rg, const SQLTable
     if (rg.nextBool())
     {
         generateNextTablePartition(rg, 0, rg.nextSmallNumber() < 3, false, t, del->mutable_single_partition()->mutable_partition());
+        /// `IN PARTITION p1, p2, ...`
+        if (rg.nextSmallNumber() < 3)
+        {
+            const uint32_t nparts = rg.randomInt<uint32_t>(1, 3);
+
+            for (uint32_t i = 0; i < nparts; i++)
+                generateNextTablePartition(rg, 0, rg.nextSmallNumber() < 3, false, t, del->add_other_partitions());
+        }
     }
     generateUptDelWhere(rg, t, del->mutable_where()->mutable_expr()->mutable_expr());
 }
@@ -2230,6 +2246,17 @@ std::optional<String> StatementGenerator::alterSingleTable(
              [&] { addTableProjection(rg, t, ProjectionUsage::TableProjection, ati->mutable_add_projection()); }},
             {2 * static_cast<uint32_t>(no_oracle && is_mt && has_projs),
              [&] { ati->mutable_remove_projection()->set_value(fc.tableGetRandomProjection(rg.nextInFullRange(), dname_idx, tname_idx)); }},
+            {2 * static_cast<uint32_t>(no_oracle && is_mt && has_projs),
+             [&]
+             {
+                 /// Generate a new definition for an existing projection
+                 ModifyProjection * mp = ati->mutable_modify_projection();
+
+                 addTableProjection(rg, t, ProjectionUsage::TableProjection, mp->mutable_def());
+                 mp->mutable_def()->mutable_proj()->set_value(fc.tableGetRandomProjection(rg.nextInFullRange(), dname_idx, tname_idx));
+                 if (rg.nextSmallNumber() < 3)
+                     mp->set_if_exists(true);
+             }},
             {2 * static_cast<uint32_t>(is_mt && can_merge && has_projs),
              [&]
              {
@@ -2920,6 +2947,7 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
         /// Failpoints
         {20 * static_cast<uint32_t>(!fc.failpoints.empty()), [&] { sc->set_enable_failpoint(rg.pickRandomly(fc.failpoints)); }},
         {5 * static_cast<uint32_t>(!fc.failpoints.empty()), [&] { sc->set_disable_failpoint(rg.pickRandomly(fc.failpoints)); }},
+        {2 * static_cast<uint32_t>(!fc.failpoints.empty()), [&] { sc->set_disable_all_failpoints(true); }},
         {5, [&] { sc->set_reconnect_keeper(true); }},
         /// Text index caches
         {3, [&] { sc->set_drop_text_index_tokens_cache(true); }},
@@ -2984,6 +3012,13 @@ void StatementGenerator::generateNextSystemStatement(RandomGenerator & rg, const
         {3, [&] { sc->set_start_thread_fuzzer(true); }},
         {3, [&] { sc->set_stop_thread_fuzzer(true); }},
         {3, [&] { sc->set_drop_parquet_metadata_cache(true); }},
+        {3, [&] { sc->set_drop_statistics_cache(true); }},
+        {3, [&] { sc->set_drop_columns_cache(true); }},
+        {3, [&] { sc->set_drop_encryption_headers_cache(true); }},
+        {3, [&] { sc->set_drop_paimon_metadata_cache(true); }},
+        {3, [&] { sc->set_drop_point_in_polygon_cache(true); }},
+        {3, [&] { sc->set_drop_avro_schema_cache(true); }},
+        {3 * static_cast<uint32_t>(!fc.disks.empty()), [&] { sc->set_drop_disk_metadata_cache(rg.pickRandomly(fc.disks).name); }},
         {3 * static_cast<uint32_t>(supports_cloud_features || fc.has_distributed_cache),
          [&]
          {
@@ -3731,7 +3766,10 @@ static const std::vector<ExplainOptValues> explainSettings{
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_single_record, trueOrFalseInt),
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_fragments, trueOrFalseInt),
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_projection_scan_budget_rows, whatIfScanBudget),
-    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_index_scan_budget_rows, whatIfScanBudget)};
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_index_scan_budget_rows, whatIfScanBudget),
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_matches, trueOrFalseInt),
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_time, trueOrFalseInt),
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_estimates, trueOrFalseInt)};
 
 void StatementGenerator::generateNextCreateHypotheticalIndex(RandomGenerator & rg, CreateHypotheticalIndex * hi)
 {
@@ -3782,7 +3820,7 @@ void StatementGenerator::generateNextExplain(RandomGenerator & rg, bool in_paral
                     this->ids.insert(this->ids.end(), {3, 4, 5, 6, 7});
                     break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_PLAN:
-                    this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 27});
+                    this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 27, 32});
                     break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_ESTIMATE:
                     this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22});
@@ -3791,7 +3829,7 @@ void StatementGenerator::generateNextExplain(RandomGenerator & rg, bool in_paral
                     this->ids.insert(this->ids.end(), {0, 8, 15, 16, 24});
                     break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_ANALYZE:
-                    this->ids.insert(this->ids.end(), {9, 11, 12, 14, 15, 16, 19, 20, 21, 22, 25});
+                    this->ids.insert(this->ids.end(), {9, 11, 12, 14, 15, 16, 19, 20, 21, 22, 25, 30, 31});
                     break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_WHATIF:
                     /// `empirical`, `projection_scan_budget_rows` and `index_scan_budget_rows`
@@ -3803,7 +3841,7 @@ void StatementGenerator::generateNextExplain(RandomGenerator & rg, bool in_paral
         }
         else
         {
-            this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 27});
+            this->ids.insert(this->ids.end(), {1, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 27, 32});
         }
         if (!this->ids.empty())
         {

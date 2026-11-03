@@ -3826,6 +3826,11 @@ CONV_FN(Delete, del)
     {
         ret += " IN ";
         SinglePartitionExprToString(ret, del.single_partition());
+        for (int i = 0; i < del.other_partitions_size(); i++)
+        {
+            ret += ", ";
+            PartitionExprToString(ret, del.other_partitions(i));
+        }
     }
     ret += " WHERE ";
     WhereStatementToString(ret, del.where());
@@ -3866,6 +3871,11 @@ CONV_FN(Update, upt)
     {
         ret += " IN ";
         SinglePartitionExprToString(ret, upt.single_partition());
+        for (int i = 0; i < upt.other_partitions_size(); i++)
+        {
+            ret += ", ";
+            PartitionExprToString(ret, upt.other_partitions(i));
+        }
     }
     ret += " WHERE ";
     WhereStatementToString(ret, upt.where());
@@ -4853,6 +4863,16 @@ CONV_FN(AlterItem, alter)
             ret += "ADD ";
             ProjectionDefToString(ret, alter.add_projection());
             break;
+        case AlterType::kModifyProjection:
+            ret += "MODIFY PROJECTION ";
+            if (alter.modify_projection().if_exists())
+            {
+                ret += "IF EXISTS ";
+            }
+            SQLIdentifierToString(ret, alter.modify_projection().def().proj());
+            ret += " ";
+            ProjectionDefBodyToString(ret, alter.modify_projection().def());
+            break;
         case AlterType::kRemoveProjection:
             ret += "DROP PROJECTION ";
             SQLIdentifierToString(ret, alter.remove_projection());
@@ -5547,6 +5567,40 @@ CONV_FN(SystemCommand, cmd)
             ret += "DROP PARQUET METADATA CACHE";
             can_set_cluster = true;
             break;
+        case CmdType::kDropStatisticsCache:
+            ret += "DROP STATISTICS CACHE";
+            can_set_cluster = true;
+            break;
+        case CmdType::kDropColumnsCache:
+            ret += "DROP COLUMNS CACHE";
+            can_set_cluster = true;
+            break;
+        case CmdType::kDropEncryptionHeadersCache:
+            ret += "DROP ENCRYPTION HEADERS CACHE";
+            can_set_cluster = true;
+            break;
+        case CmdType::kDropPaimonMetadataCache:
+            ret += "DROP PAIMON METADATA CACHE";
+            can_set_cluster = true;
+            break;
+        case CmdType::kDropPointInPolygonCache:
+            ret += "DROP POINT IN POLYGON CACHE";
+            can_set_cluster = true;
+            break;
+        case CmdType::kDropAvroSchemaCache:
+            ret += "DROP AVRO SCHEMA CACHE";
+            can_set_cluster = true;
+            break;
+        case CmdType::kDropDiskMetadataCache:
+            ret += "DROP DISK METADATA CACHE";
+            if (cmd.has_cluster())
+            {
+                ClusterToString(ret, true, cmd.cluster());
+            }
+            ret += " ";
+            ret += cmd.drop_disk_metadata_cache();
+            break;
+        case CmdType::kDisableAllFailpoints: ret += "DISABLE ALL FAILPOINTS"; break;
         case CmdType::kDropDistributedCache: {
             const auto & ddc = cmd.drop_distributed_cache();
 

@@ -4334,7 +4334,8 @@ void QueryFuzzer::fuzzExplainSettings(ASTSetQuery & settings_ast, ASTExplainQuer
           "compact",
           "column_structure",
           "pretty",
-          "fragments"}},
+          "fragments",
+          "estimates"}},
         {ASTExplainQuery::ExplainKind::QueryPipeline, {"header", "graph", "compact", "compact_repeated_processor_chains", "distributed"}},
         {ASTExplainQuery::ExplainKind::Analyze,
          {"header",
@@ -4347,7 +4348,9 @@ void QueryFuzzer::fuzzExplainSettings(ASTSetQuery & settings_ast, ASTExplainQuer
           "compact",
           "column_structure",
           "pretty",
-          "processors"}},
+          "processors",
+          "matches",
+          "time"}},
         {ASTExplainQuery::ExplainKind::QueryEstimates,
          {"header",
           "description",
@@ -6581,6 +6584,29 @@ static const std::vector<std::unordered_set<String>> & swapFuncs()
     return swapFuncs;
 }
 
+/// Turn `IN PARTITION p` into the list `IN PARTITION p, p`, and a list back into its first partition.
+/// The parser keeps a one-element list as `partition`, so a list always has two or more.
+template <typename Query>
+static void togglePartitionList(Query & query)
+{
+    auto & ch = query.children;
+    if (query.partition && !query.partitions)
+    {
+        auto list = make_intrusive<ASTExpressionList>();
+        list->children = {query.partition, query.partition->clone()};
+        ch.erase(std::remove(ch.begin(), ch.end(), query.partition), ch.end());
+        query.partition = {};
+        query.partitions = ch.emplace_back(std::move(list));
+    }
+    else if (query.partitions && !query.partitions->children.empty())
+    {
+        ASTPtr first = query.partitions->children.front();
+        ch.erase(std::remove(ch.begin(), ch.end(), query.partitions), ch.end());
+        query.partitions = {};
+        query.partition = ch.emplace_back(std::move(first));
+    }
+}
+
 /// Rewrite a lightweight `DELETE FROM` / `UPDATE` into the equivalent `ALTER TABLE` mutation,
 /// feeding the same payload through the other pipeline; the trailing query `SETTINGS` clause is
 /// carried over (both forms share the ASTQueryWithOutput path) so e.g. `mutations_sync` is kept.
@@ -8133,6 +8159,10 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             delete_query->partition = {};
             delete_query->partitions = {};
         }
+        else if (fuzz_rand() % 20 == 0)
+        {
+            togglePartitionList(*delete_query);
+        }
         fuzz(delete_query->children);
         /// Occasionally rewrite into the equivalent `ALTER TABLE ... DELETE` mutation
         if (delete_query->table && delete_query->predicate && fuzz_rand() % 10 == 0)
@@ -8166,6 +8196,10 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             ch.erase(std::remove(ch.begin(), ch.end(), update_query->partitions), ch.end());
             update_query->partition = {};
             update_query->partitions = {};
+        }
+        else if (fuzz_rand() % 20 == 0)
+        {
+            togglePartitionList(*update_query);
         }
         fuzz(update_query->children);
         /// Occasionally rewrite into the equivalent `ALTER TABLE ... UPDATE` mutation
@@ -8310,12 +8344,32 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                     alter_cmd->if_not_exists = !alter_cmd->if_not_exists;
                 break;
             case ASTAlterCommand::ADD_PROJECTION:
+            case ASTAlterCommand::MODIFY_PROJECTION:
                 /// Apply the same projection-specific mutations as fuzzCreateQuery
                 if (alter_cmd->projection_decl)
                     if (auto * proj = alter_cmd->projection_decl->as<ASTProjectionDeclaration>())
                         fuzzProjectionDeclaration(*proj);
                 if (fuzz_rand() % 20 == 0)
-                    alter_cmd->if_not_exists = !alter_cmd->if_not_exists;
+                {
+                    if (alter_cmd->type == ASTAlterCommand::ADD_PROJECTION)
+                        alter_cmd->if_not_exists = !alter_cmd->if_not_exists;
+                    else
+                        alter_cmd->if_exists = !alter_cmd->if_exists;
+                }
+                /// Both take the same declaration. `MODIFY` has no `FIRST` / `AFTER`, so flip only without them.
+                if (fuzz_rand() % 20 == 0)
+                {
+                    if (alter_cmd->type == ASTAlterCommand::MODIFY_PROJECTION)
+                    {
+                        alter_cmd->type = ASTAlterCommand::ADD_PROJECTION;
+                        alter_cmd->if_not_exists = std::exchange(alter_cmd->if_exists, false);
+                    }
+                    else if (!alter_cmd->first && !alter_cmd->projection)
+                    {
+                        alter_cmd->type = ASTAlterCommand::MODIFY_PROJECTION;
+                        alter_cmd->if_exists = std::exchange(alter_cmd->if_not_exists, false);
+                    }
+                }
                 break;
             case ASTAlterCommand::DROP_PROJECTION:
                 if (fuzz_rand() % 20 == 0)
@@ -9028,6 +9082,8 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 Type::CLEAR_CONNECTIONS_CACHE,
                 Type::CLEAR_MARK_CACHE,
                 Type::CLEAR_PRIMARY_INDEX_CACHE,
+                Type::CLEAR_STATISTICS_CACHE,
+                Type::CLEAR_COLUMNS_CACHE,
                 Type::CLEAR_UNCOMPRESSED_CACHE,
                 Type::CLEAR_INDEX_MARK_CACHE,
                 Type::CLEAR_INDEX_UNCOMPRESSED_CACHE,

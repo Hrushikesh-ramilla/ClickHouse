@@ -1866,6 +1866,8 @@ message SinglePartitionExpr {
 message Delete {
     optional SinglePartitionExpr single_partition = 1;
     required WhereStatement where = 2;
+    /// `IN PARTITION p1, p2, ...`, after `single_partition`
+    repeated PartitionExpr other_partitions = 3;
 }
 
 message LightDelete {
@@ -1885,6 +1887,8 @@ message Update {
     repeated UpdateSet other_updates = 2;
     optional SinglePartitionExpr single_partition = 3;
     required WhereStatement where = 4;
+    /// `IN PARTITION p1, p2, ...`, after `single_partition`
+    repeated PartitionExpr other_partitions = 5;
 }
 
 message LightUpdate {
@@ -2029,6 +2033,11 @@ message AddIndex {
 message IdxInPartition {
     required SQLIdentifier idx = 1;
     optional SinglePartitionExpr single_partition = 2;
+}
+
+message ModifyProjection {
+    optional bool if_exists = 1;
+    required ProjectionDef def = 2;
 }
 
 message ProjectionInPartition {
@@ -2367,6 +2376,8 @@ message AlterItem {
         string comment = 56;
         /// For policies
         AlterPolicyContent alter_policy = 57;
+        /// For MergeTree tables
+        ModifyProjection modify_projection = 58;
     }
 }
 
@@ -2571,6 +2582,15 @@ message SystemCommand {
         bool cancel_all_background = 119;
         bool refresh_all_background = 120;
         ExprSchemaTable drop_time_series_caches = 121;
+        bool drop_statistics_cache = 122;
+        bool drop_columns_cache = 123;
+        bool drop_encryption_headers_cache = 124;
+        bool drop_paimon_metadata_cache = 125;
+        bool drop_point_in_polygon_cache = 126;
+        bool drop_avro_schema_cache = 127;
+        string drop_disk_metadata_cache = 128;
+        /// Fail points are node-local, so no `ON CLUSTER`
+        bool disable_all_failpoints = 129;
     }
 }
 
@@ -2807,6 +2827,9 @@ message ExplainOption {
         fragments = 28;
         projection_scan_budget_rows = 29;
         index_scan_budget_rows = 30;
+        matches = 31;
+        time = 32;
+        estimates = 33;
     }
     required ExplainOpt opt = 1;
     required uint32 val = 2;
