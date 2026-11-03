@@ -3690,6 +3690,14 @@ struct ExplainOptValues
 
 static const std::function<uint32_t(RandomGenerator &)> trueOrFalseInt = [](RandomGenerator & rg) { return rg.nextBool() ? 1 : 0; };
 
+/// Row budgets of EXPLAIN WHATIF: 0 is no limit, small ones make the estimates sample granules
+static uint32_t whatIfScanBudget(RandomGenerator & rg)
+{
+    if (rg.nextSmallNumber() < 3)
+        return 0;
+    return rg.nextBool() ? rg.randomInt<uint32_t>(1, 100) : rg.randomInt<uint32_t>(1, 100000);
+}
+
 static const std::vector<ExplainOptValues> explainSettings{
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_graph, trueOrFalseInt),
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_optimize, trueOrFalseInt),
@@ -3721,7 +3729,9 @@ static const std::vector<ExplainOptValues> explainSettings{
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_compact_repeated_processor_chains, trueOrFalseInt),
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_processors, trueOrFalseInt),
     ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_single_record, trueOrFalseInt),
-    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_fragments, trueOrFalseInt)};
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_fragments, trueOrFalseInt),
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_projection_scan_budget_rows, whatIfScanBudget),
+    ExplainOptValues(ExplainOption_ExplainOpt::ExplainOption_ExplainOpt_index_scan_budget_rows, whatIfScanBudget)};
 
 void StatementGenerator::generateNextCreateHypotheticalIndex(RandomGenerator & rg, CreateHypotheticalIndex * hi)
 {
@@ -3784,8 +3794,8 @@ void StatementGenerator::generateNextExplain(RandomGenerator & rg, bool in_paral
                     this->ids.insert(this->ids.end(), {9, 11, 12, 14, 15, 16, 19, 20, 21, 22, 25});
                     break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_WHATIF:
-                    /// `empirical` is the only supported setting for EXPLAIN WHATIF
-                    this->ids.insert(this->ids.end(), {23});
+                    /// `empirical`, `projection_scan_budget_rows` and `index_scan_budget_rows`
+                    this->ids.insert(this->ids.end(), {23, 28, 29});
                     break;
                 case ExplainQuery_ExplainValues::ExplainQuery_ExplainValues_CURRENT_TRANSACTION: break;
                 default: break;

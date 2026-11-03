@@ -1542,17 +1542,13 @@ message IndexDef {
     optional uint32 granularity = 5;
 }
 
-message ProjectionSelectDef {
-    required Select select = 1;
-    optional SettingValues setting_values = 2;
-}
-
 message ProjectionDef {
     required SQLIdentifier proj = 1;
     oneof projection_oneof {
-        ProjectionSelectDef sel_def = 2;
+        Select sel_def = 2;
         IndexDef idx_def = 3;
     }
+    optional SettingValues setting_values = 4;
 }
 
 message ConstraintDef {
@@ -2809,6 +2805,8 @@ message ExplainOption {
         processors = 26;
         single_record = 27;
         fragments = 28;
+        projection_scan_budget_rows = 29;
+        index_scan_budget_rows = 30;
     }
     required ExplainOpt opt = 1;
     required uint32 val = 2;

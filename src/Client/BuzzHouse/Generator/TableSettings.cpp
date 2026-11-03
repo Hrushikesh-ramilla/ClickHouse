@@ -831,8 +831,8 @@ std::unordered_map<String, CHSetting> backupSettings
        {"use_same_s3_credentials_for_base_backup", trueOrFalseSettingNoOracle},
        {"write_access_entities_dependents", trueOrFalseSettingNoOracle}};
 
-std::unordered_map<String, CHSetting> projectionSettings
-    = {{"index_granularity", highRangeNonZeroSetting}, {"index_granularity_bytes", indexGranularityBytesSetting}};
+/// Filled from `mergeTreeTableSettings` in `loadFuzzerTableSettings`
+std::unordered_map<String, CHSetting> projectionSettings;
 
 std::unordered_map<String, CHSetting> refreshSettings
     = {{"all_replicas", trueOrFalseSettingNoOracle},
@@ -1498,6 +1498,34 @@ void loadFuzzerTableSettings(const FuzzConfig & fc)
         azureBlobStorageSettings.erase(entry);
         azureQueueSettings.erase(entry);
         logTableSettings.erase(entry);
+    }
+    /// The MergeTree settings `ProjectionDescription::getProjectionFromAST` accepts in `WITH SETTINGS`, for both forms
+    static const std::vector<String> projection_setting_names
+        = {"add_minmax_index_for_block_number_column",
+           "add_minmax_index_for_block_offset_column",
+           "add_minmax_index_for_numeric_columns",
+           "add_minmax_index_for_string_columns",
+           "add_minmax_index_for_temporal_columns",
+           "index_granularity",
+           "index_granularity_bytes",
+           "map_serialization_version",
+           "map_serialization_version_for_zero_level_parts",
+           "max_compress_block_size",
+           "min_bytes_for_wide_part",
+           "min_compress_block_size",
+           "min_level_for_wide_part",
+           "min_rows_for_wide_part",
+           "nullable_serialization_version",
+           "propagate_types_serialization_versions_to_nested_types",
+           "ratio_of_defaults_for_sparse_serialization",
+           "replace_long_file_name_to_hash",
+           "serialization_info_version",
+           "string_serialization_version",
+           "write_marks_for_substreams_in_compact_parts"};
+    for (const auto & name : projection_setting_names)
+    {
+        if (const auto it = mergeTreeTableSettings.find(name); it != mergeTreeTableSettings.end())
+            projectionSettings.insert(*it);
     }
     auto icebergTableSettings = dataLakeSettings;
     icebergTableSettings.insert(icebergTableOnlySettings.begin(), icebergTableOnlySettings.end());

@@ -2309,7 +2309,6 @@ void StatementGenerator::addTableProjection(RandomGenerator & rg, SQLTable & t, 
     this->inside_projection = true;
     if (rg.nextBool())
     {
-        ProjectionSelectDef * psdef = pdef->mutable_sel_def();
         const bool prev_allow_subqueries = this->allow_subqueries;
         const uint32_t ncols = rg.nextMediumNumber() < 91 ? 1 : (rg.nextMediumNumber() % 3) + 1;
 
@@ -2331,17 +2330,17 @@ void StatementGenerator::addTableProjection(RandomGenerator & rg, SQLTable & t, 
             ncols,
             allow_where | allow_groupby | allow_orderby | allow_global_aggregate,
             std::nullopt,
-            psdef->mutable_select());
+            pdef->mutable_sel_def());
         this->allow_subqueries = prev_allow_subqueries;
         this->levels.clear();
-        /// Add projection settings
-        if (rg.nextSmallNumber() < 4)
-            generateSettingValues(rg, projectionSettings, psdef->mutable_setting_values());
     }
     else
     {
         addTableIndex(rg, t, IndexUsage::ProjectionIndex, pdef->mutable_idx_def());
     }
+    /// Add projection settings
+    if (!projectionSettings.empty() && rg.nextSmallNumber() < 4)
+        generateSettingValues(rg, projectionSettings, pdef->mutable_setting_values());
     this->inside_projection = false;
 }
 

@@ -3234,28 +3234,25 @@ CONV_FN(IndexDef, idef)
     IndexDefTypeToString(ret, idef);
 }
 
-CONV_FN(ProjectionSelectDef, psdef)
-{
-    ret += "(";
-    SelectToString(ret, psdef.select());
-    ret += ")";
-    if (psdef.has_setting_values())
-    {
-        ret += " WITH SETTINGS (";
-        SettingValuesToString(ret, psdef.setting_values());
-        ret += ")";
-    }
-}
-
 /// Everything after the projection name, shared by table projections and hypothetical projections
 static void ProjectionDefBodyToString(String & ret, const ProjectionDef & proj_def)
 {
     using ProjectionDefType = ProjectionDef::ProjectionOneofCase;
     switch (proj_def.projection_oneof_case())
     {
-        case ProjectionDefType::kSelDef: ProjectionSelectDefToString(ret, proj_def.sel_def()); break;
+        case ProjectionDefType::kSelDef:
+            ret += "(";
+            SelectToString(ret, proj_def.sel_def());
+            ret += ")";
+            break;
         case ProjectionDefType::kIdxDef: IndexDefToString(ret, proj_def.idx_def()); break;
         default: ret += "(SELECT c0 ORDER BY c0)";
+    }
+    if (proj_def.has_setting_values())
+    {
+        ret += " WITH SETTINGS (";
+        SettingValuesToString(ret, proj_def.setting_values());
+        ret += ")";
     }
 }
 

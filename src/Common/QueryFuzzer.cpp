@@ -4366,7 +4366,7 @@ void QueryFuzzer::fuzzExplainSettings(ASTSetQuery & settings_ast, ASTExplainQuer
           "fragments"}},
         {ASTExplainQuery::ExplainKind::TableOverride, {}},
         {ASTExplainQuery::ExplainKind::CurrentTransaction, {}},
-        {ASTExplainQuery::ExplainKind::WhatIf, {"empirical"}}};
+        {ASTExplainQuery::ExplainKind::WhatIf, {"empirical", "projection_scan_budget_rows", "index_scan_budget_rows"}}};
 
     const auto & settings = settings_by_kind.at(kind);
     if (fuzz_rand() % 50 == 0 && !changes.empty())
@@ -4374,10 +4374,11 @@ void QueryFuzzer::fuzzExplainSettings(ASTSetQuery & settings_ast, ASTExplainQuer
         changes.erase(changes.begin() + fuzz_rand() % changes.size());
     }
 
-    /// `passes` (QUERY TREE) and `query_tree_passes` (SYNTAX) are the only Int64-valued EXPLAIN
-    /// settings; the rest are booleans. Exercise the 0 case for booleans and boundary values for
-    /// the integers, instead of always forcing 1.
-    static const std::unordered_set<String> integer_settings = {"passes", "query_tree_passes"};
+    /// `passes` (QUERY TREE), `query_tree_passes` (SYNTAX) and the WHATIF row budgets are the only
+    /// integer EXPLAIN settings; the rest are booleans. Exercise the 0 case for booleans and boundary
+    /// values for the integers, instead of always forcing 1. Small budgets make WHATIF sample granules.
+    static const std::unordered_set<String> integer_settings
+        = {"passes", "query_tree_passes", "projection_scan_budget_rows", "index_scan_budget_rows"};
     static const std::array<Int64, 7> integer_values = {-10, -1, 0, 1, 2, 10, 1000000};
     for (const auto & setting : settings)
     {
