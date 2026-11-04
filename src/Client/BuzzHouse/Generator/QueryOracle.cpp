@@ -1857,8 +1857,14 @@ void QueryOracle::maybeUpdateOracleSelectQuery(RandomGenerator & rg, StatementGe
                                 /// Replace table with table function call
                                 const SQLTable & t = gen.tables.at(tkey);
 
+                                /// The table function's `structure` lists the columns in arbitrary order, which `SELECT *`
+                                /// would expose, so only swap a table whose structure has a single entry.
+                                gen.flatTableColumnPath(to_remote_entries, t.cols, [](const SQLColumn &) { return true; });
+                                const bool single_structure_entry = gen.remote_entries.size() <= 1;
+                                gen.remote_entries.clear();
+
                                 gen.setAllowNotDetermistic(false);
-                                if (t.isEngineReplaceable() && rg.nextSmallNumber() < 5)
+                                if (single_structure_entry && t.isEngineReplaceable() && rg.nextSmallNumber() < 5)
                                 {
                                     gen.setTableFunction(rg, TableFunctionUsage::EngineReplace, t, tf->mutable_tfunc());
                                 }
