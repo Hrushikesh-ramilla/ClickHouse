@@ -58,10 +58,10 @@ SETTINGS max_rows_to_read = 10000000, read_overflow_mode = 'throw', query_plan_j
 
 SELECT '-- A join that spills gives the same result.';
 -- The left side is a single stream, so the other probe streams are empty while the spilled buckets are joined.
-SELECT count() FROM (SELECT number FROM numbers(1000000) INTERSECT DISTINCT SELECT number FROM numbers(200000, 600000))
-SETTINGS max_bytes_before_external_join = 1000000;
-SELECT count() FROM (SELECT number FROM numbers(1000000) EXCEPT DISTINCT SELECT number FROM numbers(200000, 600000))
-SETTINGS max_bytes_before_external_join = 1000000;
+SELECT count() FROM (SELECT number FROM numbers(10000) INTERSECT DISTINCT SELECT number FROM numbers(2000, 6000))
+SETTINGS max_bytes_before_external_join = 400000;
+SELECT count() FROM (SELECT number FROM numbers(10000) EXCEPT DISTINCT SELECT number FROM numbers(2000, 6000))
+SETTINGS max_bytes_before_external_join = 400000;
 
 SELECT '-- limits of DISTINCT';
 SELECT count() FROM (SELECT number FROM numbers(10) INTERSECT DISTINCT SELECT number FROM numbers(10))

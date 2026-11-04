@@ -123,28 +123,47 @@ IProcessor::Status JoiningTransform::prepare()
 
     if (build_finished_input && !build_finished_input->isFinished())
     {
-        build_finished_input->setNeeded();
-        if (build_finished_input->hasData())
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "No data is expected from second JoiningTransform port");
-
-        /// A set-operation join reads its left side while the right one is filled. INNER and LEFT output nothing for an
-        /// empty left side, so a stream whose left side is exhausted closes its port to the right side, and once every
-        /// stream has, the right side, which may be unbounded, stops being read. RIGHT ANTI outputs the right rows.
+        /// A set-operation join asks for its right side only once its left side has a row, as the set operation reads
+        /// its left side first: INNER and LEFT output nothing for an empty left side, so a stream whose left side ends
+        /// without a row closes its port to the right side, and if every stream does, the right side, which may be
+        /// unbounded, is never read. RIGHT ANTI outputs the right rows, so it always needs them.
         /// Whether the build was abandoned is known only when the last stream drains, so until then the stream still
         /// waits for the spilled buckets, which the other streams may need.
-        const auto & table_join = join->getTableJoin();
-        if (table_join.setOperation() == JoinSetOperation::None || isRight(table_join.kind()) || keep_reading_build)
+        const bool probe_first = join->getTableJoin().setOperation() != JoinSetOperation::None && !isRight(join->getTableJoin().kind())
+            && !keep_reading_build && !on_totals;
+        if (probe_first && !has_input)
+        {
+            auto & probe = inputs.front();
+            probe.setNeeded();
+            if (!probe.isFinished())
+            {
+                if (!probe.hasData())
+                    return Status::NeedData;
+                input_chunk = probe.pull(true);
+                has_virtual_row = isVirtualRow(input_chunk);
+                has_input = input_chunk.hasRows() || has_virtual_row;
+                if (!has_input)
+                    return Status::NeedData;
+            }
+            else
+            {
+                build_finished_input->close();
+                stream_probe_empty = true;
+                if (finish_counter)
+                    finish_counter->addEmptyProbeStream();
+                else if (delayed_blocks_input)
+                    delayed_blocks_input->close();
+                delayed_blocks_checked = true;
+            }
+        }
+
+        if (!stream_probe_empty)
+        {
+            build_finished_input->setNeeded();
+            if (build_finished_input->hasData())
+                throw Exception(ErrorCodes::LOGICAL_ERROR, "No data is expected from second JoiningTransform port");
             return Status::NeedData;
-        inputs.front().setNeeded();
-        if (!inputs.front().isFinished() || has_input || on_totals)
-            return Status::NeedData;
-        build_finished_input->close();
-        stream_probe_empty = true;
-        if (finish_counter)
-            finish_counter->addEmptyProbeStream();
-        else if (delayed_blocks_input)
-            delayed_blocks_input->close();
-        delayed_blocks_checked = true;
+        }
     }
 
     if (delayed_blocks_input && !delayed_blocks_checked)
