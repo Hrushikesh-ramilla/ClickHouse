@@ -2848,7 +2848,9 @@ keeper_settings = {
         ),
         "nuraft_max_log_gap_in_stream": threshold_generator(0.2, 0.2, 0, 1024),
         "nuraft_max_uncommitted_log_entries": threshold_generator(0.2, 0.2, 0, 1000000),
-        "nuraft_snapshot_sync_ctx_timeout_ms": threshold_generator(0.2, 0.2, 0, 60000),
+        "nuraft_snapshot_sync_ctx_timeout_ms": threshold_generator(
+            0.2, 0.2, 0, 60000, allow_unlimited=False
+        ),
         "nuraft_streaming_mode": true_false_lambda,
         "nuraft_use_bg_thread_for_snapshot_io": true_false_lambda,
         "optimize_read_order": true_false_lambda,
