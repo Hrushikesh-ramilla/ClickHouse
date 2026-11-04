@@ -1148,29 +1148,37 @@ def parse_cache_size(text: str) -> int:
     return int(text)
 
 
-def normalize_cache_properties(cache_element: ET.Element, default_policy: str = "SLRU"):
-    """`default_policy` is the policy the cache gets without `cache_policy`: a distributed cache
-    server forces `LRU_OVERCOMMIT` after `validate`, so its checks must assume that one."""
-    # `FileCacheSettings::validate` and the `FileCache` constructor reject split cache with overcommit policies.
+def normalize_cache_properties(
+    cache_element: ET.Element, forced_policy: typing.Optional[str] = None
+):
+    """`FileCacheSettings::validate` checks a cache without `cache_policy` with the default SLRU.
+    `forced_policy` is what such a cache gets after `validate` (a distributed cache server forces
+    `LRU_OVERCOMMIT`), so it only matters for the checks done later."""
+    policy_is_set = get_cache_setting(cache_element, "cache_policy", "") != ""
+    runtime_policy = get_cache_setting(
+        cache_element, "cache_policy", forced_policy or "SLRU"
+    )
+    # The `FileCache` constructor rejects split cache with overcommit policies.
     use_split_cache = cache_element.find("use_split_cache")
     if (
         use_split_cache is not None
         and use_split_cache.text == "1"
-        and get_cache_setting(cache_element, "cache_policy", default_policy)
-        in ("LRU_OVERCOMMIT", "SLRU_OVERCOMMIT")
+        and runtime_policy in ("LRU_OVERCOMMIT", "SLRU_OVERCOMMIT")
     ):
         use_split_cache.text = "0"
 
     # `max_size_ratio_to_total_space` sizes the cache from the disk at startup, unknown here, so
     # SLRU is avoided: a small disk could leave a queue smaller than a file segment.
     if cache_element.find("max_size_ratio_to_total_space") is not None:
-        policy = get_cache_setting(cache_element, "cache_policy", default_policy)
+        policy = get_cache_setting(cache_element, "cache_policy", "SLRU")
         if policy in ("SLRU", "SLRU_OVERCOMMIT"):
-            set_cache_setting(cache_element, "cache_policy", policy.replace("SLRU", "LRU"))
+            # An explicit LRU would be rejected where an overcommit policy is forced
+            base = policy if policy_is_set or forced_policy is None else forced_policy
+            set_cache_setting(cache_element, "cache_policy", base.replace("SLRU", "LRU"))
 
     # `FileCacheSettings::validate` rejects an SLRU cache whose file segment does not fit
     # each SLRU queue (of both parts with `use_split_cache`), so shrink the file segment.
-    if get_cache_setting(cache_element, "cache_policy", default_policy) in ("SLRU", "SLRU_OVERCOMMIT"):
+    if get_cache_setting(cache_element, "cache_policy", "SLRU") in ("SLRU", "SLRU_OVERCOMMIT"):
         # The same rounding as `std::lround` and `std::clamp` in `FileCacheSettings::validate`.
         get_ratio = lambda total, ratio: int(total * min(max(ratio, 0.0), 1.0) + 0.5)
         max_size = parse_cache_size(get_cache_setting(cache_element, "max_size", "0"))
@@ -2565,8 +2573,8 @@ def generate_distributed_cache_config(args, node: int) -> tuple[str, int]:
         cache_policy = cache_xml.find("cache_policy")
         if cache_policy is not None and cache_policy.text in ("LRU", "SLRU"):
             cache_policy.text = f"{cache_policy.text}_OVERCOMMIT"
-        # Without `cache_policy`, `DistributedCacheServerInstance` forces `LRU_OVERCOMMIT`
-        normalize_cache_properties(cache_xml, default_policy="LRU_OVERCOMMIT")
+        # Without `cache_policy`, `DistributedCacheServerInstance` forces `LRU_OVERCOMMIT` after `validate`
+        normalize_cache_properties(cache_xml, forced_policy="LRU_OVERCOMMIT")
         if random.randint(1, 100) <= 70:
             apply_properties_recursively(
                 server_xml, distributed_cache_server_properties
